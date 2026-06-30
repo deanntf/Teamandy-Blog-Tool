@@ -145,7 +145,7 @@ system_instruction = """
 """
 
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro", 
+    model_name="gemini-2.5-pro", # 2026년 기준 최신 고성능 모델로 업그레이드
     system_instruction=system_instruction
 )
 
