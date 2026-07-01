@@ -156,7 +156,7 @@ model = genai.GenerativeModel(
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
 
 st.title("🚗 팀앤디 오토센터 블로그 매니저")
-st.markdown("#### 고객관리명단에서 차종과 작업내역을 복사해서 붙여넣어 주세요.")
+st.markdown("고객관리명단에서 차종과 작업내역을 복사해서 붙여넣어 주세요.")
 
 st.divider()
 
@@ -172,7 +172,7 @@ with col2:
 st.divider()
 
 # 사진 업로드 영역
-st.markdown("#### 📸 작업 사진 업로드")
+st.markdown("📸 작업 사진 업로드")
 uploaded_files = st.file_uploader("스마트폰 앨범 또는 PC에서 사진을 여러 장 선택하세요 (jpg, png)", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
 st.divider()
