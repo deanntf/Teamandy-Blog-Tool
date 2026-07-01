@@ -3,7 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 
 # 1. API 키 설정
-genai.configure(api_key="AQ.Ab8RN6K-Zjza7LqNtje8TgufqRJX3mSlSh_VmthakBurOK_rrw")
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # 2. 팀앤디 오토센터 전용 1~12번 가이드라인 세팅
 system_instruction = """
