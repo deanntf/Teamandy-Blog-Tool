@@ -156,7 +156,7 @@ model = genai.GenerativeModel(
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
 
 st.title("🚗 팀앤디 오토센터 블로그 매니저")
-st.markdown("#### 고객관리명단(2026)의 내용을 그대로 복사해서 붙여넣어 주세요.")
+st.markdown("#### 고객관리명단에서 차종과 작업내역을 그대로 복사해서 붙여넣어 주세요.")
 
 st.divider()
 
@@ -195,8 +195,8 @@ if st.button("✨ 블로그 원고 자동 생성기 실행 ✨", use_container_w
                 # API 호출 및 결과 출력
                 response = model.generate_content(images + [user_prompt])
                 
-                st.success("✅ 원고 생성이 완료되었습니다! 내용을 복사하여 블로그에 등록해 주세요.")
-                st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
+                st.success("✅ 원고 생성이 완료되었습니다! 제목과 내용을 복사하여 블로그에 등록해 주세요.")
+                st.text_area("📋 완성된 블로그 원고", value=response.text, height=500)
                 
             except Exception as e:
                 st.error(f"오류가 발생했습니다: {e}")
