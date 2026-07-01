@@ -156,7 +156,7 @@ model = genai.GenerativeModel(
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
 
 st.title("🚗 팀앤디 오토센터 블로그 매니저")
-st.markdown("#### 고객관리명단에서 차종과 작업내역을 그대로 복사해서 붙여넣어 주세요.")
+st.markdown("#### 고객관리명단에서 차종과 작업내역을 복사해서 붙여넣어 주세요.")
 
 st.divider()
 
@@ -167,7 +167,7 @@ with col1:
     car_model = st.text_input("🚙 차종", placeholder="예: GV70")
 
 with col2:
-    work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30% 측후면 14% + PPF(4종) + 유리막코팅...")
+    work_details = st.text_area("🛠️ 작업 내역", placeholder="예: 브이쿨 VK/K 전면 30% 측후면 14% + PPF(4종) + 유리막코팅...")
 
 st.divider()
 
