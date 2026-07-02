@@ -26,7 +26,9 @@ def save_to_gsheet(car_model, work_details):
         worksheet = doc.sheet1 # 첫 번째 시트 선택
         
         # 오늘 날짜와 함께 엑셀에 데이터 추가 (A열: 날짜, B열: 차종, C열: 작업내역)
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        # (서버 시간에 9시간을 더해 한국 시간으로 강제 고정)
+        KST = datetime.timezone(datetime.timedelta(hours=9))
+        now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         worksheet.append_row([now, car_model, work_details])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
