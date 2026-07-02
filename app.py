@@ -156,7 +156,7 @@ model = genai.GenerativeModel(
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
 
 st.title("🚗 팀앤디 오토센터 블로그 매니저")
-st.markdown("고객관리명단에서 차종과 작업내역을 복사해서 붙여넣어 주세요.")
+st.info("💡 고객관리명단에서 차종과 작업 내역을 복사해서 붙여넣어 주세요.")
 
 st.divider()
 
