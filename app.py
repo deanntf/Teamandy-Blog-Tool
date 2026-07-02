@@ -2,6 +2,35 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
+# 👇 여기서부터 복사해서 추가하세요 👇
+import gspread
+from google.oauth2.service_account import Credentials
+import json
+import datetime
+
+# [★새로 추가된 기능] 스프레드시트 자동 저장 함수
+def save_to_gsheet(car_model, work_details):
+    try:
+        # 금고에서 로봇 열쇠(JSON) 꺼내기
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        
+        # 🚨 아래 쌍따옴표 안에 대표님의 엑셀 주소를 붙여넣으세요!
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit?gid=1200727784#gid=1200727784"
+        
+        doc = gc.open_by_url(sheet_url)
+        worksheet = doc.sheet1 # 첫 번째 시트 선택
+        
+        # 오늘 날짜와 함께 엑셀에 데이터 추가 (A열: 날짜, B열: 차종, C열: 작업내역)
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        worksheet.append_row([now, car_model, work_details])
+    except Exception as e:
+        st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
+
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -152,51 +181,53 @@ model = genai.GenerativeModel(
     system_instruction=system_instruction
 )
 
+# 👇 기존 #3번부터 끝까지 지우고 아래 코드로 교체하세요 👇
 # 3. 팀앤디 직원 전용 UI 구성
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
 
-st.title("🚗 팀앤디 오토센터 블로그 매니저")
+st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
 st.info("💡 고객관리명단에서 차종과 작업 내역을 복사해서 붙여넣어 주세요.")
 
 st.divider()
 
-# 레이아웃 나누기 (차종과 작업내역을 나란히 배치)
-col1, col2 = st.columns([1, 2])
+# UI 묶기 (st.form) - 엔터키 입력 시 튕김 현상 방지
+with st.form("my_form"):
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        car_model = st.text_input("🚙 차종", placeholder="예: GV70")
+    with col2:
+        work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30% 측후면 14% + PPF(4종) + 유리막코팅...")
 
-with col1:
-    car_model = st.text_input("🚙 차종", placeholder="예: GV70")
+    st.subheader("📸 작업 사진 업로드")
+    st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3~5장 내외로 선택하세요 (사진이 많을 경우 1~2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
+    st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
+    
+    uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
-with col2:
-    work_details = st.text_area("🛠️ 작업 내역", placeholder="예: 브이쿨 VK/K 전면 30% 측후면 14% + PPF(4종) + 유리막코팅...")
+    st.divider()
 
-st.divider()
-
-# 사진 업로드 영역
-st.markdown("📸 작업 사진 업로드")
-uploaded_files = st.file_uploader("스마트폰 앨범 또는 PC에서 사진을 여러 장 선택하세요 (jpg, png)", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
-
-st.divider()
+    # 버튼 강조 (type="primary")
+    submitted = st.form_submit_button("✨ 블로그 원고 자동 생성기 실행 ✨", type="primary", use_container_width=True)
 
 # 4. 블로그 원고 생성 실행
-if st.button("✨ 블로그 원고 자동 생성기 실행 ✨", use_container_width=True):
+if submitted:
     if car_model and work_details and uploaded_files:
-        with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 1분 소요)"):
+        with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
             try:
-                # [★수정 완료] 사진 크기를 가볍게 압축하여 처리 속도 향상 및 무한 로딩 해결
+                # [★ 엑셀 저장 함수 실행]
+                save_to_gsheet(car_model, work_details)
+
                 images = []
                 for file in uploaded_files:
                     img = Image.open(file)
-                    img.thumbnail((800, 800))  # 가로세로 최대 800픽셀로 자동 축소
+                    img.thumbnail((800, 800))  
                     images.append(img)
                 
-                # AI에게 전달할 프롬프트 조합
                 user_prompt = f"[키워드/시공 내역]\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
-                
-                # API 호출 및 결과 출력
                 response = model.generate_content(images + [user_prompt])
                 
-                st.success("✅ 원고 생성이 완료되었습니다! 제목과 내용을 복사하여 블로그에 등록해 주세요.")
-                st.text_area("📋 완성된 블로그 원고", value=response.text, height=500)
+                st.success("✅ 원고 생성이 완료되었습니다! (입력하신 내역이 엑셀에 자동 저장되었습니다)")
+                st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
                 
             except Exception as e:
                 st.error(f"오류가 발생했습니다: {e}")
