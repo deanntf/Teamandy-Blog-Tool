@@ -242,4 +242,4 @@ if submitted:
             except Exception as e:
                 st.error(f"오류가 발생했습니다: {e}")
     else:
-        st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요."))
+        st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
