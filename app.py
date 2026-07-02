@@ -199,7 +199,7 @@ with st.form("my_form"):
         work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30% 측후면 14% + PPF(4종) + 유리막코팅...")
 
     st.subheader("📸 작업 사진 업로드")
-    st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3~5장 내외로 선택하세요 (사진이 많을 경우 1~2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
+    st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3\~5장 내외로 선택하세요 (사진이 많을 경우 1\~2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
     st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
     
     uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
