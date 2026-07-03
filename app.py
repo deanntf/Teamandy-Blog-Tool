@@ -2,13 +2,11 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# 👇 여기서부터 복사해서 추가하세요 👇
 import gspread
 from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★새로 추가된 기능] 스프레드시트 자동 저장 함수
 # [★새로 추가된 기능] 스프레드시트 자동 저장 함수 (관리번호 추가)
 def save_to_gsheet(management_num, car_model, work_details):
     try:
