@@ -271,8 +271,8 @@ with right_col:
     
     if recent_data:
         for row in recent_data:
-            # 작업 내역이 너무 길면 첫 30글자만 보여주고 줄입니다.
-            work_summary = row[3][:30] + "..." if len(row[3]) > 30 else row[3]
+            # 작업 내역 전체를 그대로 출력합니다.
+            work_summary = row[3]
             
             # 카드 형태로 깔끔하게 표시
             st.markdown(f"**[{row[1]}] {row[2]}**")
