@@ -270,14 +270,18 @@ with right_col:
     recent_data = get_recent_history()
     
     if recent_data:
+        # HTML로 한 번에 묶어서 블록 간의 불필요한 여백을 완전히 제거합니다.
+        history_html = ""
         for row in recent_data:
-            # 작업 내역 전체를 그대로 출력합니다.
             work_summary = row[3]
             
-            # 카드 형태로 깔끔하게 표시
-            st.markdown(f"**[{row[1]}] {row[2]}**")
-            st.caption(f"🗓️ {row[0]}")
-            st.markdown(f"<span style='font-size:14px; color:gray;'>🛠️ {work_summary}</span>", unsafe_allow_html=True)
-            st.divider()
+            history_html += f"""
+            <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
+                <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
+                <div style="font-size: 13px; color: #888888; margin-bottom: 8px;">🗓️ {row[0]}</div>
+                <div style="font-size: 14px; color: #555555; white-space: pre-wrap;">🛠️ {work_summary}</div>
+            </div>
+            """
+        st.markdown(history_html, unsafe_allow_html=True)
     else:
         st.info("아직 생성된 이력이 없습니다.")
