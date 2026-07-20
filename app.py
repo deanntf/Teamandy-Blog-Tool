@@ -262,19 +262,20 @@ with left_col:
             st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
 
 with right_col:
-    st.markdown("### 🕒 최근 생성 이력")
-    st.caption("가장 최근에 작업이 완료된 5개의 목록입니다.")
-    st.divider()
-    
-    # 저장된 데이터를 불러와서 깔끔하게 출력합니다.
+    # 1. 엑셀에서 데이터를 먼저 불러옵니다.
     recent_data = get_recent_history()
     
+    # 2. 제목, 설명, 그리고 '긴 바(hr)'까지 하나의 HTML로 묶어 여백을 완전히 좁힙니다.
+    history_html = """
+    <h3 style="margin-top: 0; margin-bottom: 8px;">🕒 최근 생성 이력</h3>
+    <div style="font-size: 14px; color: #888888; margin-bottom: 12px;">가장 최근에 작업이 완료된 5개의 목록입니다.</div>
+    <hr style="margin: 0; border: none; border-top: 1px solid rgba(0,0,0,0.1);" />
+    """
+    
+    # 3. 불러온 이력을 그 아래에 착착 붙입니다.
     if recent_data:
-        # HTML로 한 번에 묶어서 블록 간의 불필요한 여백을 완전히 제거합니다.
-        history_html = ""
         for row in recent_data:
             work_summary = row[3]
-            
             history_html += f"""
             <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
                 <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
@@ -282,6 +283,8 @@ with right_col:
                 <div style="font-size: 14px; color: #555555; white-space: pre-wrap;">🛠️ {work_summary}</div>
             </div>
             """
+        # 묶은 HTML을 화면에 단 한 번만 출력합니다. (불필요한 파이썬 블록 여백 완벽 제거)
         st.markdown(history_html, unsafe_allow_html=True)
     else:
+        st.markdown(history_html, unsafe_allow_html=True)
         st.info("아직 생성된 이력이 없습니다.")
