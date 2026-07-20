@@ -7,10 +7,9 @@ from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★새로 추가된 기능] 스프레드시트 자동 저장 함수 (관리번호 추가)
+# [★기존 기능] 스프레드시트 자동 저장 함수
 def save_to_gsheet(management_num, car_model, work_details):
     try:
-        # 금고에서 로봇 열쇠(JSON) 꺼내기
         creds_json = json.loads(st.secrets["GCP_JSON"])
         creds = Credentials.from_service_account_info(
             creds_json, 
@@ -18,20 +17,44 @@ def save_to_gsheet(management_num, car_model, work_details):
         )
         gc = gspread.authorize(creds)
         
-        # 🚨 대표님의 엑셀 주소
         sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit?gid=1200727784#gid=1200727784"
-        
         doc = gc.open_by_url(sheet_url)
-        worksheet = doc.sheet1 # 첫 번째 시트 선택
+        worksheet = doc.sheet1
         
-        # KST(한국 시간) 적용
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
-        # 엑셀에 데이터 추가 (A열: 날짜, B열: 관리번호, C열: 차종, D열: 작업내역)
         worksheet.append_row([now, management_num, car_model, work_details])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
+
+# [★새로 추가된 기능] 스프레드시트에서 최근 이력 5개 불러오기 함수
+def get_recent_history():
+    try:
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit?gid=1200727784#gid=1200727784"
+        doc = gc.open_by_url(sheet_url)
+        worksheet = doc.sheet1 
+        
+        # 엑셀의 모든 데이터를 가져옵니다
+        records = worksheet.get_all_values()
+        
+        # 빈 줄이 아닌 정상적인 데이터만 필터링합니다
+        valid_records = [row for row in records if len(row) >= 4 and str(row[0]).strip() != ""]
+        
+        # 가장 아래에 있는 최신 데이터 5개를 가져와서 최신순으로 뒤집습니다
+        recent_records = valid_records[-5:]
+        recent_records.reverse()
+        
+        return recent_records
+    except Exception as e:
+        return []
 
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -129,7 +152,7 @@ system_instruction = """
 [예시 2: 신차 패키지 풀시공 (고객 맞춤형 틴팅+PPF+유리막+서비스 강조형)]
 안녕하세요! 프리미엄 썬팅 및 신차패키지 전문점 팀앤디 오토센터입니다.
 
-요즘 도로 위에서 가장 뜨거운 시선을 받는 차량을 하나 꼽으라면 단 단연 이 모델이 아닐까 싶습니다. 바로 페이스리프트를 거치며 더욱 세련되고 미래지향적인 디자인으로 돌아온 테슬라 모델Y 주니퍼 화이트 색상 차량입니다!
+요즘 도로 위에서 가장 뜨거운 시선을 받는 차량을 하나 꼽으라면 단연 이 모델이 아닐까 싶습니다. 바로 페이스리프트를 거치며 더욱 세련되고 미래지향적인 디자인으로 돌아온 테슬라 모델Y 주니퍼 화이트 색상 차량입니다!
 
 화이트 실물이 정말 역대급으로 예쁘더라구요. 디자인이 세련되어진 만큼, 그에 걸맞은 프리미엄 틴팅과 꼼꼼한 신차 관리가 필수겠죠?
 이번에 저희 센터를 찾아주신 고객님은 젊은 부부 오너분이셨는데요. 스타일리시한 외관 완성은 물론, 확실한 프라이버시 보호와 압도적인 열 차단 성능을 모두 원하셨기에 탁월한 최고급 비반사 필름을 추천해 드렸습니다.
@@ -179,63 +202,82 @@ system_instruction = """
 """
 
 model = genai.GenerativeModel(
-    model_name="gemini-3.5-flash", # Google AI Studio 목록에서 확인한 최신 모델 적용
+    model_name="gemini-3.5-flash",
     system_instruction=system_instruction
 )
 
 # 3. 팀앤디 직원 전용 UI 구성
-st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="centered")
+# [★ 변경점] layout="wide"를 적용하여 화면을 넓게 사용합니다.
+st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="wide")
 
-st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-st.info("💡 고객관리명단에서 차종과 작업 내역을 복사해서 붙여넣어 주세요.")
+# 화면을 7(입력창) : 3(최근 이력) 비율로 분할합니다.
+left_col, right_col = st.columns([7, 3], gap="large")
 
-st.divider()
-
-# UI 묶기 (st.form) - 엔터키 입력 시 튕김 현상 방지
-with st.form("my_form"):
-    # 칸을 3개로 나눕니다 (비율 1 : 1 : 2)
-    col1, col2, col3 = st.columns([1, 1, 2])
-    with col1:
-        management_num = st.text_input("🔢 순번/관리번호", placeholder="예: 229")
-    with col2:
-        car_model = st.text_input("🚙 차종", placeholder="예: GV70")
-    with col3:
-        work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30%...")
-
-    st.subheader("📸 작업 사진 업로드")
-    st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3-5장 내외로 선택하세요 (사진이 많을 경우 1-2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
-    st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
+with left_col:
+    st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
+    st.info("💡 고객관리명단에서 차종과 작업 내역을 복사해서 붙여넣어 주세요.")
     
-    uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
-
     st.divider()
 
-    # 버튼 강조 (type="primary")
-    submitted = st.form_submit_button("✨ 블로그 원고 자동 생성기 실행 ✨", type="primary", use_container_width=True)
+    with st.form("my_form"):
+        col1, col2, col3 = st.columns([1, 1, 2])
+        with col1:
+            management_num = st.text_input("🔢 순번/관리번호", placeholder="예: 229")
+        with col2:
+            car_model = st.text_input("🚙 차종", placeholder="예: GV70")
+        with col3:
+            work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30%...")
 
-# 4. 블로그 원고 생성 실행
-if submitted:
-    # 관리번호(management_num)도 입력되었는지 함께 확인합니다.
-    if management_num and car_model and work_details and uploaded_files:
-        with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
-            try:
-                # [★ 엑셀 저장 함수 실행] -> 여기에는 번호가 들어갑니다!
-                save_to_gsheet(management_num, car_model, work_details)
+        st.subheader("📸 작업 사진 업로드")
+        st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3-5장 내외로 선택하세요 (사진이 많을 경우 1-2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
+        st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
+        
+        uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
-                images = []
-                for file in uploaded_files:
-                    img = Image.open(file)
-                    img.thumbnail((800, 800))  
-                    images.append(img)
-                
-                # [★ AI 프롬프트 조합] -> 여기에는 번호(management_num)를 절대 넣지 않습니다!
-                user_prompt = f"[키워드/시공 내역]\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
-                response = model.generate_content(images + [user_prompt])
-                
-                st.success("✅ 원고 생성이 완료되었습니다! (입력하신 내역이 엑셀에 자동 저장되었습니다)")
-                st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
-                
-            except Exception as e:
-                st.error(f"오류가 발생했습니다: {e}")
+        st.divider()
+        submitted = st.form_submit_button("✨ 블로그 원고 자동 생성기 실행 ✨", type="primary", use_container_width=True)
+
+    # 4. 블로그 원고 생성 실행
+    if submitted:
+        if management_num and car_model and work_details and uploaded_files:
+            with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
+                try:
+                    save_to_gsheet(management_num, car_model, work_details)
+
+                    images = []
+                    for file in uploaded_files:
+                        img = Image.open(file)
+                        img.thumbnail((800, 800))  
+                        images.append(img)
+                    
+                    user_prompt = f"[키워드/시공 내역]\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
+                    response = model.generate_content(images + [user_prompt])
+                    
+                    st.success("✅ 원고 생성이 완료되었습니다! (입력하신 내역이 엑셀에 자동 저장되었습니다)")
+                    st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
+                    
+                except Exception as e:
+                    st.error(f"오류가 발생했습니다: {e}")
+        else:
+            st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
+
+with right_col:
+    st.markdown("### 🕒 최근 생성 이력")
+    st.caption("가장 최근에 작업이 완료된 5개의 목록입니다.")
+    st.divider()
+    
+    # 저장된 데이터를 불러와서 깔끔하게 출력합니다.
+    recent_data = get_recent_history()
+    
+    if recent_data:
+        for row in recent_data:
+            # 작업 내역이 너무 길면 첫 30글자만 보여주고 줄입니다.
+            work_summary = row[3][:30] + "..." if len(row[3]) > 30 else row[3]
+            
+            # 카드 형태로 깔끔하게 표시
+            st.markdown(f"**[{row[1]}] {row[2]}**")
+            st.caption(f"🗓️ {row[0]}")
+            st.markdown(f"<span style='font-size:14px; color:gray;'>🛠️ {work_summary}</span>", unsafe_allow_html=True)
+            st.divider()
     else:
-        st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
+        st.info("아직 생성된 이력이 없습니다.")
