@@ -1,15 +1,16 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 import gspread
 from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★기존 기능] 스프레드시트 자동 저장 함수
+# [★기존 기능] 스프레드시트 자동 저장 함수 (관리번호 추가)
 def save_to_gsheet(management_num, car_model, work_details):
     try:
+        # 금고에서 로봇 열쇠(JSON) 꺼내기
         creds_json = json.loads(st.secrets["GCP_JSON"])
         creds = Credentials.from_service_account_info(
             creds_json, 
@@ -17,18 +18,21 @@ def save_to_gsheet(management_num, car_model, work_details):
         )
         gc = gspread.authorize(creds)
         
+        # 🚨 대표님의 엑셀 주소
         sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit?gid=1200727784#gid=1200727784"
         doc = gc.open_by_url(sheet_url)
         worksheet = doc.sheet1
         
+        # KST(한국 시간) 적용
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
+        # 엑셀에 데이터 추가
         worksheet.append_row([now, management_num, car_model, work_details])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
 
-# [★새로 추가된 기능] 스프레드시트에서 최근 이력 5개 불러오기 함수
+# [★기존 기능] 스프레드시트에서 최근 이력 5개 불러오기 함수
 def get_recent_history():
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
@@ -56,10 +60,26 @@ def get_recent_history():
     except Exception as e:
         return []
 
+# [★새로 추가된 기능] 블로그용 사진 자동 보정 함수
+def enhance_image_for_blog(img):
+    # 1. 밝기 보정 (1.1배 화사하게)
+    enhancer_bright = ImageEnhance.Brightness(img)
+    img = enhancer_bright.enhance(1.1)
+    
+    # 2. 선명도 보정 (1.2배 또렷하게 - 광택/유리막 강조)
+    enhancer_sharp = ImageEnhance.Sharpness(img)
+    img = enhancer_sharp.enhance(1.2)
+    
+    # 3. 색감 보정 (1.1배 생기있게)
+    enhancer_color = ImageEnhance.Color(img)
+    img = enhancer_color.enhance(1.1)
+    
+    return img
+
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 2. 팀앤디 오토센터 전용 1~12번 가이드라인 세팅
+# 2. 팀앤디 오토센터 전용 가이드라인 세팅
 system_instruction = """
 [Role & Identity]
 당신은 10년 이상의 현장 경험을 보유한 '팀앤디 오토센터'의 수석 엔지니어이자, 네이버 블로그 'teamandy19'의 메인 에디터입니다. 신차 패키지 및 차량 디테일링에 대한 완벽한 기술적 이해도를 바탕으로, 고객에게 무한한 신뢰감을 주는 최고 전문가의 화법을 구사합니다.
@@ -207,10 +227,9 @@ model = genai.GenerativeModel(
 )
 
 # 3. 팀앤디 직원 전용 UI 구성
-# [★ 변경점] layout="wide"를 적용하여 화면을 넓게 사용합니다.
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="wide")
 
-# 화면을 7(입력창) : 3(최근 이력) 비율로 분할합니다.
+# 화면 분할 (7:3)
 left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
@@ -228,7 +247,7 @@ with left_col:
         with col3:
             work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30%...")
 
-        st.subheader("📸 작업 사진 업로드")
+        st.subheader("📸 작업 사진 업로드 (자동 보정 기능 탑재 ✨)")
         st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3-5장 내외로 선택하세요 (사진이 많을 경우 1-2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
         st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
         
@@ -242,14 +261,35 @@ with left_col:
         if management_num and car_model and work_details and uploaded_files:
             with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
                 try:
+                    # 엑셀 저장
                     save_to_gsheet(management_num, car_model, work_details)
 
                     images = []
-                    for file in uploaded_files:
-                        img = Image.open(file)
-                        img.thumbnail((800, 800))  
-                        images.append(img)
                     
+                    # 보정된 사진 안내 문구
+                    st.markdown("### 📸 블로그 업로드용 자동 보정 사진")
+                    st.caption("우클릭하여 '이미지를 다른 이름으로 저장' 하신 후 블로그에 바로 사용하세요!")
+                    
+                    # 사진 갯수만큼 화면 칸 나누기
+                    img_cols = st.columns(len(uploaded_files))
+                    
+                    for idx, file in enumerate(uploaded_files):
+                        img = Image.open(file)
+                        
+                        # [★ 새로 추가] 블로그용으로 밝기, 선명도, 채도 자동 보정
+                        enhanced_img = enhance_image_for_blog(img)
+                        
+                        # 화면에 보정된 사진 출력
+                        with img_cols[idx]:
+                            st.image(enhanced_img, use_column_width=True)
+                        
+                        # AI에게 줄 때는 용량을 줄여서 전달
+                        enhanced_img.thumbnail((800, 800))  
+                        images.append(enhanced_img)
+                    
+                    st.divider()
+                    
+                    # AI 프롬프트 조합
                     user_prompt = f"[키워드/시공 내역]\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
                     response = model.generate_content(images + [user_prompt])
                     
@@ -262,26 +302,25 @@ with left_col:
             st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
 
 with right_col:
-    # 1. 엑셀에서 데이터를 먼저 불러옵니다.
+    # 엑셀에서 데이터를 불러옵니다.
     recent_data = get_recent_history()
     
-    # 2. 제목, 설명, 그리고 '긴 바(hr)'까지 하나의 HTML로 묶어 여백을 완전히 좁힙니다.
+    # 제목, 설명, 가로줄을 하나의 HTML로 묶어 여백 제거 (앞에 띄어쓰기 절대 금지)
     history_html = """<h3 style="margin-top: 0; margin-bottom: 8px;">🕒 최근 생성 이력</h3>
 <div style="font-size: 14px; color: #888888; margin-bottom: 12px;">가장 최근에 작업이 완료된 5개의 목록입니다.</div>
 <hr style="margin: 0; border: none; border-top: 1px solid rgba(0,0,0,0.1);" />"""
     
-    # 3. 불러온 이력을 그 아래에 착착 붙입니다.
     if recent_data:
         for row in recent_data:
             work_summary = row[3]
-            # ★ Streamlit 착각을 방지하기 위해 태그 앞의 공백(들여쓰기)을 모두 없앴습니다.
+            # 이력 목록 HTML 결합 (앞에 띄어쓰기 절대 금지)
             history_html += f"""
 <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
 <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
 <div style="font-size: 13px; color: #888888; margin-bottom: 8px;">🗓️ {row[0]}</div>
 <div style="font-size: 14px; color: #555555; white-space: pre-wrap;">🛠️ {work_summary}</div>
 </div>"""
-        # 묶은 HTML을 화면에 단 한 번만 출력합니다. 
+        
         st.markdown(history_html, unsafe_allow_html=True)
     else:
         st.markdown(history_html, unsafe_allow_html=True)
