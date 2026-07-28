@@ -61,9 +61,8 @@ def enhance_image_for_blog(img):
     img = enhancer_color.enhance(1.1)
     return img
 
-# [★수정됨] 상단 워터마크 자동 삽입 (전화번호 제거 및 박스 크기 조절)
+# [★기존] 상단 워터마크 자동 삽입
 def add_watermark(img, font_path="font.ttf"):
-    # 사진 크기를 가로 1000px로 통일하여 글씨 크기 편차 방지
     w, h = img.size
     new_w = 1000
     new_h = int((new_w / w) * h)
@@ -77,58 +76,49 @@ def add_watermark(img, font_path="font.ttf"):
         font_title = ImageFont.load_default()
         st.warning("⚠️ 폰트 파일(font.ttf)이 없어 기본 글꼴로 표시됩니다.")
         
-    # 검은색 반투명 배경 박스 그리기 (전화번호가 빠졌으므로 세로 높이 축소)
     draw.rectangle([(20, 20), (195, 65)], fill=(0, 0, 0, 220))
-    
-    # 텍스트 삽입 (TEAMANDY만 남김)
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
     
     return img
 
-# [★신규] 대표 사진(썸네일) 하단 디자인 자동 삽입
+# [★수정됨] 대표 사진(썸네일) 하단 디자인 자동 삽입 (메인 글씨 크기 축소 및 간격 조절)
 def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"):
     w, h = img.size
     
-    # 하단 텍스트가 들어갈 블러(흐림) 영역 지정 (세로 기준 55% ~ 85% 지점)
     box_top = int(h * 0.55)
     box_bottom = int(h * 0.85)
     
-    # 해당 영역만 잘라내서 블러 처리 및 어둡게 만들기
     region = img.crop((0, box_top, w, box_bottom))
     region = region.filter(ImageFilter.GaussianBlur(radius=8))
     
-    overlay = Image.new('RGBA', region.size, (0, 0, 0, 140)) # 반투명 검은색 덮기
+    overlay = Image.new('RGBA', region.size, (0, 0, 0, 140))
     region = Image.alpha_composite(region, overlay)
     
-    # 원본 이미지에 다시 붙여넣기
     img.paste(region, (0, box_top), region)
     
-    # 위아래 하얀색 얇은 테두리 선 그리기
     draw = ImageDraw.Draw(img)
     draw.line([(0, box_top), (w, box_top)], fill=(255, 255, 255, 200), width=2)
     draw.line([(0, box_bottom), (w, box_bottom)], fill=(255, 255, 255, 200), width=2)
     
     try:
         font_car = ImageFont.truetype(font_path, 35)
-        font_film = ImageFont.truetype(font_path, 70) # 메인 필름명은 아주 크게
+        font_film = ImageFont.truetype(font_path, 48) # [수정] 70 -> 48로 축소하여 조화롭게 변경
         font_detail = ImageFont.truetype(font_path, 22)
     except IOError:
         font_car = ImageFont.load_default()
         font_film = ImageFont.load_default()
         font_detail = ImageFont.load_default()
         
-    # 가운데 정렬하여 텍스트 넣는 헬퍼 함수
     def draw_centered_text(draw_obj, text, font, y_pos):
         bbox = draw_obj.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         x_pos = (w - text_w) / 2
         draw_obj.text((x_pos, y_pos), text, font=font, fill="white")
         
-    # 텍스트 삽입
-    draw_centered_text(draw, f"'{car_model}'", font_car, box_top + 25)
-    draw_centered_text(draw, main_film, font_film, box_top + 70)
+    # [수정] 글씨가 작아진 만큼 상하 간격을 중앙으로 모아주었습니다.
+    draw_centered_text(draw, f"'{car_model}'", font_car, box_top + 35)
+    draw_centered_text(draw, main_film, font_film, box_top + 90)
     
-    # 상세 내역이 너무 길면 잘리므로 줄임말 처리
     display_detail = f"[ {work_details[:40]}... ]" if len(work_details) > 40 else f"[ {work_details} ]"
     draw_centered_text(draw, display_detail, font_detail, box_top + 160)
     
@@ -192,7 +182,6 @@ with left_col:
     st.divider()
 
     with st.form("my_form"):
-        # UI 레이아웃 조정
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             management_num = st.text_input("🔢 번호", placeholder="예: 229")
@@ -201,7 +190,6 @@ with left_col:
         with col3:
             car_model = st.text_input("🚙 차종", placeholder="예: GV70")
             
-        # 썸네일용 아주 큰 글씨 필름명 입력칸 추가
         main_film = st.text_input("👑 메인 시공명 (썸네일 대표 글씨)", placeholder="예: 루마 버텍스 900")
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
 
