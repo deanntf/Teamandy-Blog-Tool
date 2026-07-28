@@ -7,10 +7,9 @@ from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★기존 기능] 스프레드시트 자동 저장 함수 (관리번호 추가)
+# [★기존 기능] 스프레드시트 자동 저장 함수 (지역명은 엑셀 양식 유지를 위해 제외)
 def save_to_gsheet(management_num, car_model, work_details):
     try:
-        # 금고에서 로봇 열쇠(JSON) 꺼내기
         creds_json = json.loads(st.secrets["GCP_JSON"])
         creds = Credentials.from_service_account_info(
             creds_json, 
@@ -18,16 +17,14 @@ def save_to_gsheet(management_num, car_model, work_details):
         )
         gc = gspread.authorize(creds)
         
-        # 🚨 대표님의 엑셀 주소
         sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit?gid=1200727784#gid=1200727784"
         doc = gc.open_by_url(sheet_url)
         worksheet = doc.sheet1
         
-        # KST(한국 시간) 적용
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
-        # 엑셀에 데이터 추가
+        # 엑셀에 데이터 추가 (기존 양식 그대로 유지)
         worksheet.append_row([now, management_num, car_model, work_details])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
@@ -46,13 +43,9 @@ def get_recent_history():
         doc = gc.open_by_url(sheet_url)
         worksheet = doc.sheet1 
         
-        # 엑셀의 모든 데이터를 가져옵니다
         records = worksheet.get_all_values()
-        
-        # 빈 줄이 아닌 정상적인 데이터만 필터링합니다
         valid_records = [row for row in records if len(row) >= 4 and str(row[0]).strip() != ""]
         
-        # 가장 아래에 있는 최신 데이터 5개를 가져와서 최신순으로 뒤집습니다
         recent_records = valid_records[-5:]
         recent_records.reverse()
         
@@ -60,17 +53,14 @@ def get_recent_history():
     except Exception as e:
         return []
 
-# [★새로 추가된 기능] 블로그용 사진 자동 보정 함수
+# [★기존 기능] 블로그용 사진 자동 보정 함수
 def enhance_image_for_blog(img):
-    # 1. 밝기 보정 (1.1배 화사하게)
     enhancer_bright = ImageEnhance.Brightness(img)
     img = enhancer_bright.enhance(1.1)
     
-    # 2. 선명도 보정 (1.2배 또렷하게 - 광택/유리막 강조)
     enhancer_sharp = ImageEnhance.Sharpness(img)
     img = enhancer_sharp.enhance(1.2)
     
-    # 3. 색감 보정 (1.1배 생기있게)
     enhancer_color = ImageEnhance.Color(img)
     img = enhancer_color.enhance(1.1)
     
@@ -114,12 +104,13 @@ system_instruction = """
 13. 과장된 표현 및 비유 절대 금지: "생유리 상태", "0.1mm 오차도 없이 완벽한" 등 현장에서 쓰지 않는 비현실적이고 과장된 수사 어구는 절대 사용하지 마십시오.
 14. 담백하고 전문적인 서술어 사용: "~로 이어 드렸습니다", "~을 도왔습니다", "보호막을 형성해 드렸습니다" 같은 어색하고 감성적인 번역투 동사 사용을 엄격히 금지합니다. 대신 "시공을 완료했습니다", "부착했습니다", "적용했습니다" 등 건조하고 정확한 시공 전문 용어로 서술하십시오.
 15. 무관한 기술의 억지 연결 금지: PPF의 '자가 복원(Self-healing) 기능'과 '시공 경계선이 보이지 않는 재단 기술' 등 원리가 전혀 다른 두 가지 장점을 억지로 한 문장(인과관계)에 섞어 쓰지 마십시오. 또한 사용자가 '쉐이빙'을 별도로 요청하지 않는 이상, 썬프로 재단기를 통한 부착 마감으로만 서술하고 쉐이빙 기술은 언급하지 마십시오.
+16. 지역 검색(로컬 SEO) 최적화: 사용자가 전달한 [타겟 지역] 키워드를 억지스럽지 않게 블로그 제목에 1회, 본문 서론이나 결론부에 1~2회 자연스럽게 녹여내십시오. (예: "구리에서 방문해주신 고객님", "구리 썬팅 전문점 팀앤디" 등)
 
 [네이버 검색 품질 가이드라인 (어뷰징 엄격 금지)]
 1. 키워드 남용 및 반복 금지: 검색 노출만을 목적으로 제목이나 본문에 특정 키워드(차종, 시공명, 지역명 등)를 부자연스럽게 반복하지 마십시오. 문맥에 따라 '이 차량', '이번 시공', '고객님' 등의 대명사나 유의어를 적극 활용하여 사람이 쓴 것처럼 자연스러운 흐름을 만드십시오.
 2. 기계적인 템플릿 탈피 (저품질 대량 생산 방지): 매 포스팅마다 서론의 시작 방식을 완전히 다르게 변주하십시오. 항상 똑같은 인사말("안녕하세요. 팀앤디 오토센터입니다")로 시작하지 말고, 날씨, 차량 입고 비하인드 스토리, 최신 자동차 트렌드 등 다양한 주제로 포문을 열어 각 글이 100% 고유한 창작물로 인식되게 하십시오.
 3. 낚시성 제목 및 과장 금지: 실제 작업 내용과 무관하거나 자극적인 화제성 수식어("충격", "무조건 보세요", "최고의" 등)를 배제하십시오. 독자가 제목만 읽고도 어떤 차량에 무슨 시공을 했는지 정확히 알 수 있도록, 정직하고 구체적인 정보성 제목을 작성하십시오.
-4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족): 네이버가 가장 중요하게 보는 것은 '직접 해본 사람의 진짜 경험'입니다. 단순히 작업 순서를 나열하지 말고, 제공된 [작업 사진]을 보고 현장 작업자만이 알 수 있는 고충이나 디테일(예: "이 차종은 측면 유리 굴곡이 깊어 열성형 온도를 세밀하게 조절해야 했습니다", "기존 본드층이 너무 두꺼워 제거에만 스팀기를 2시간 이상 사용했습니다" 등)을 반드시 1~2개 이상 본문에 자연스럽게 창작하여 녹여내십시오.
+4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족): 네이버가 가장 중요하게 보는 것은 '직접 해본 사람의 진짜 경험'입니다. 단순히 작업 순서를 나열하지 말고, 제공된 [작업 사진]을 보고 현장 작업자만이 알 수 있는 고충이나 디테일(예: "이 차종은 측면 유리 굴곡이 깊어 열성형 온도를 세밀하게 조절해야 했습니다")을 반드시 1~2개 이상 본문에 자연스럽게 창작하여 녹여내십시오.
 
 [팀앤디 오토센터 제품 사전]
 * 브이쿨 QB (최신 비반사 필름): 브이쿨이 새롭게 선보인 '프리미엄 비반사(Black Non-Reflective)' 라인업입니다. 가시광선 반사율(VLR)이 6~8%에 불과한 완벽한 비반사 필름이므로, 본문 작성 시 절대 '열반사 성능', '반사 필름' 등의 단어를 사용하지 마십시오. 차분하고 고급스러운 블랙/차콜 색상으로 자연스러운 외관을 연출하며, 총태양에너지 차단율(TSER) 최대 63%의 뛰어난 열 차단 성능과 맑은 시인성을 제공하는 라인업입니다. (농도 라인업: QB 05, QB 12, QB 27)
@@ -201,30 +192,6 @@ system_instruction = """
 출고 차량을 보며 환하게 만족해 주시던 부부 고객님의 미소 덕분에 피로가 싹 날아갔습니다.
 늘 안전하고 쾌적한 드라이빙 되시길 바랍니다!
 한 대 한 대 제 차라는 마음으로 정성을 다해 시공하겠습니다. 감사합니다!
-
----
-
-[예시 3: 중고차 재썬팅 (기포 제거, 열선 보호 및 클리닝 강조형)]
-안녕하세요. 팀앤디 오토센터 메인 에디터입니다.
-
-오늘 입고된 차량은 후면 유리 열선 부위에서 이른바 '뽀글이' 현상이 심각하게 발생한 상태였습니다. 전체적으로 수많은 기포로 인해 시야 방해는 물론, 미관상으로도 흉한 상태로 입고가 되었는데요.
-
-이런 버블 현상이 나타나는 이유는 열선과 필름 사이의 접착 불량, 저가 필름 사용, 시공 후 열선 작동 시 수축 밀림, 혹은 열성형 과정에서의 과도한 고온 변형 등 다양합니다. 이유가 무엇이든 대응 방법은 단 하나, 완벽한 재시공뿐입니다.
-
-기존 필름은 본연의 기능을 상실하여 보라색을 띠고 있었습니다. 기포가 보이지 않더라도 이렇게 색이 변했다면 미세 플라스틱이 분출될 수 있으니 빠르게 시공하셔야 합니다.
-
-재시공은 신차 작업보다 훨씬 고되고 까다롭습니다. 먼저 철저한 마스킹으로 차량을 보호한 뒤, 전용 트리머를 사용하여 후면 열선 손상 없이 기존 필름을 조심스럽게 제거합니다. 이후 가장 중요한 잔여 접착제와 먼지 클리닝 작업이 이어집니다. 뒷유리 1장만 하더라도 대략 2시간 이상 걸리는 난이도 높은 작업이기에 예약 시 시간을 여유롭게 잡으셔야 합니다.
-
-깔끔해진 유리 위에 새롭게 선택하신 프리미엄 필름을 재단하고 열 드레싱을 거쳐 전용 케미컬로 정확하게 시공합니다. 마무리로 먼지나 수분 유입을 확인하고, 자동차 열선 동작이 완벽한지 체크한 후 출고를 도와드립니다.
-
-재시공이 완료된 후, 아직 작업하지 않은 2열 창문과 비교해 보니 색감과 선명도 차이가 눈으로 직접 확인될 정도네요. 색바램이 심하면 눈의 피로도가 높아져 운전이 위험할 수 있으니, 측면도 빠르게 재시공하시기를 권해 드렸습니다. 새로운 프리미엄 필름으로 주간 및 야간 시야가 맑게 개선되었고, 자외선 차단은 물론 신차 같은 미관 효과로 고객님의 만족감도 극대화되었습니다. 
-
-[💡팀앤디 에디터의 꿀팁!]
-내 차의 썬팅 색이 얼마나 변했는지 헷갈리신다면, 실외보다는 실내에서 창문 쪽으로 스마트폰 카메라를 켜서 사진을 찍어보세요. 육안으로 보는 것보다 보라색으로 변형된 정도를 훨씬 확실하게 구분하실 수 있습니다.
-
-저희 팀앤디 오토센터는 입고 시 증상 확인부터 출고 전 디테일한 검수까지 1인 책임 시공을 원칙으로 합니다. 모든 과정을 철저하게 체크하기에 다른 곳보다 시간은 조금 더 걸릴 수 있어도, 그만큼 타협 없는 완벽한 결과물로 보답합니다. 
-
-오토센터에서 취급하는 모든 프리미엄 필름은 정품이며 공식 보증서가 함께 발급되니 안심하고 맡겨주세요. 유사한 뽀글이 증상이나 색바램으로 눈의 피로를 겪고 계신다면, 주저하지 마시고 언제든 저희 팀앤디 오토센터로 편하게 문의하시기 바랍니다!
 """
 
 model = genai.GenerativeModel(
@@ -240,18 +207,21 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 고객관리명단에서 차종과 작업 내역을 복사해서 붙여넣어 주세요.")
+    st.info("💡 고객관리명단에서 타겟 지역과 차종, 작업 내역을 입력해 주세요.")
     
     st.divider()
 
     with st.form("my_form"):
-        col1, col2, col3 = st.columns([1, 1, 2])
+        # [★ 변경점] 지역 입력칸을 추가하기 위해 컬럼을 4개로 늘리고 비율을 조정합니다.
+        col1, col2, col3, col4 = st.columns([1, 1, 1.5, 2.5])
         with col1:
-            management_num = st.text_input("🔢 순번/관리번호", placeholder="예: 229")
+            management_num = st.text_input("🔢 순번/번호", placeholder="예: 229")
         with col2:
-            car_model = st.text_input("🚙 차종", placeholder="예: GV70")
+            target_location = st.text_input("📍 타겟 지역", placeholder="예: 구리, 다산")
         with col3:
-            work_details = st.text_area("🛠️ 작업 내역 (복사/붙여넣기)", placeholder="예: 브이쿨 VK/K 전면 30%...")
+            car_model = st.text_input("🚙 차종", placeholder="예: GV70")
+        with col4:
+            work_details = st.text_area("🛠️ 작업 내역", placeholder="예: 브이쿨 VK/K 전면 30%...")
 
         st.subheader("📸 작업 사진 업로드 (자동 보정 기능 탑재 ✨)")
         st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3-5장 내외로 선택하세요 (사진이 많을 경우 1-2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
@@ -264,10 +234,11 @@ with left_col:
 
     # 4. 블로그 원고 생성 실행
     if submitted:
-        if management_num and car_model and work_details and uploaded_files:
+        # 지역명(target_location)도 입력되었는지 함께 확인합니다.
+        if management_num and target_location and car_model and work_details and uploaded_files:
             with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
                 try:
-                    # 엑셀 저장
+                    # 엑셀 저장 (엑셀 양식 유지를 위해 번호, 차종, 내역만 저장)
                     save_to_gsheet(management_num, car_model, work_details)
 
                     images = []
@@ -282,7 +253,7 @@ with left_col:
                     for idx, file in enumerate(uploaded_files):
                         img = Image.open(file)
                         
-                        # [★ 새로 추가] 블로그용으로 밝기, 선명도, 채도 자동 보정
+                        # 블로그용으로 밝기, 선명도, 채도 자동 보정
                         enhanced_img = enhance_image_for_blog(img)
                         
                         # 화면에 보정된 사진 출력
@@ -295,8 +266,8 @@ with left_col:
                     
                     st.divider()
                     
-                    # AI 프롬프트 조합
-                    user_prompt = f"[키워드/시공 내역]\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
+                    # [★ 변경점] AI 프롬프트에 '타겟 지역' 변수를 추가하여 블로그 노출 전략 적용
+                    user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 전달된 타겟 지역명, 그리고 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
                     response = model.generate_content(images + [user_prompt])
                     
                     st.success("✅ 원고 생성이 완료되었습니다! (입력하신 내역이 엑셀에 자동 저장되었습니다)")
@@ -305,7 +276,7 @@ with left_col:
                 except Exception as e:
                     st.error(f"오류가 발생했습니다: {e}")
         else:
-            st.warning("⚠️ 관리번호, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
+            st.warning("⚠️ 순번, 타겟 지역, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
 
 with right_col:
     # 엑셀에서 데이터를 불러옵니다.
