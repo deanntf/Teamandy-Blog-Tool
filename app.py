@@ -1,13 +1,13 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 
 import gspread
 from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★기존 기능] 스프레드시트 자동 저장 함수 (지역명은 엑셀 양식 유지를 위해 제외)
+# [★기존] 엑셀 자동 저장
 def save_to_gsheet(management_num, car_model, work_details):
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
@@ -24,12 +24,11 @@ def save_to_gsheet(management_num, car_model, work_details):
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
-        # 엑셀에 데이터 추가 (기존 양식 그대로 유지)
         worksheet.append_row([now, management_num, car_model, work_details])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
 
-# [★기존 기능] 스프레드시트에서 최근 이력 5개 불러오기 함수
+# [★기존] 최근 이력 불러오기
 def get_recent_history():
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
@@ -48,28 +47,100 @@ def get_recent_history():
         
         recent_records = valid_records[-5:]
         recent_records.reverse()
-        
         return recent_records
-    except Exception as e:
+    except Exception:
         return []
 
-# [★기존 기능] 블로그용 사진 자동 보정 함수
+# [★기존] 색감 자동 보정
 def enhance_image_for_blog(img):
     enhancer_bright = ImageEnhance.Brightness(img)
     img = enhancer_bright.enhance(1.1)
-    
     enhancer_sharp = ImageEnhance.Sharpness(img)
     img = enhancer_sharp.enhance(1.2)
-    
     enhancer_color = ImageEnhance.Color(img)
     img = enhancer_color.enhance(1.1)
+    return img
+
+# [★신규] 상단 워터마크 자동 삽입
+def add_watermark(img, font_path="font.ttf"):
+    # 사진 크기를 가로 1000px로 통일하여 글씨 크기 편차 방지
+    w, h = img.size
+    new_w = 1000
+    new_h = int((new_w / w) * h)
+    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS).convert("RGBA")
+    
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        font_title = ImageFont.truetype(font_path, 28)
+        font_phone = ImageFont.truetype(font_path, 18)
+    except IOError:
+        font_title = ImageFont.load_default()
+        font_phone = ImageFont.load_default()
+        st.warning("⚠️ 폰트 파일(font.ttf)이 없어 기본 글꼴로 표시됩니다.")
+        
+    # 검은색 반투명 배경 박스 그리기 (좌측 상단)
+    draw.rectangle([(20, 20), (220, 85)], fill=(0, 0, 0, 220))
+    
+    # 텍스트 삽입
+    draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
+    draw.text((30, 60), "📞 010-7990-0779", font=font_phone, fill="white")
+    
+    return img
+
+# [★신규] 대표 사진(썸네일) 하단 디자인 자동 삽입
+def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"):
+    w, h = img.size
+    
+    # 하단 텍스트가 들어갈 블러(흐림) 영역 지정 (세로 기준 55% ~ 85% 지점)
+    box_top = int(h * 0.55)
+    box_bottom = int(h * 0.85)
+    
+    # 해당 영역만 잘라내서 블러 처리 및 어둡게 만들기
+    region = img.crop((0, box_top, w, box_bottom))
+    region = region.filter(ImageFilter.GaussianBlur(radius=8))
+    
+    overlay = Image.new('RGBA', region.size, (0, 0, 0, 140)) # 반투명 검은색 덮기
+    region = Image.alpha_composite(region, overlay)
+    
+    # 원본 이미지에 다시 붙여넣기
+    img.paste(region, (0, box_top), region)
+    
+    # 위아래 하얀색 얇은 테두리 선 그리기
+    draw = ImageDraw.Draw(img)
+    draw.line([(0, box_top), (w, box_top)], fill=(255, 255, 255, 200), width=2)
+    draw.line([(0, box_bottom), (w, box_bottom)], fill=(255, 255, 255, 200), width=2)
+    
+    try:
+        font_car = ImageFont.truetype(font_path, 35)
+        font_film = ImageFont.truetype(font_path, 70) # 메인 필름명은 아주 크게
+        font_detail = ImageFont.truetype(font_path, 22)
+    except IOError:
+        font_car = ImageFont.load_default()
+        font_film = ImageFont.load_default()
+        font_detail = ImageFont.load_default()
+        
+    # 가운데 정렬하여 텍스트 넣는 헬퍼 함수
+    def draw_centered_text(draw_obj, text, font, y_pos):
+        bbox = draw_obj.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        x_pos = (w - text_w) / 2
+        draw_obj.text((x_pos, y_pos), text, font=font, fill="white")
+        
+    # 텍스트 삽입
+    draw_centered_text(draw, f"'{car_model}'", font_car, box_top + 25)
+    draw_centered_text(draw, main_film, font_film, box_top + 70)
+    
+    # 상세 내역이 너무 길면 잘리므로 줄임말 처리
+    display_detail = f"[ {work_details[:40]}... ]" if len(work_details) > 40 else f"[ {work_details} ]"
+    draw_centered_text(draw, display_detail, font_detail, box_top + 160)
     
     return img
 
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 2. 팀앤디 오토센터 전용 가이드라인 세팅
+# 2. 가이드라인 세팅 (기존과 동일)
 system_instruction = """
 [Role & Identity]
 당신은 10년 이상의 현장 경험을 보유한 '팀앤디 오토센터'의 수석 엔지니어이자, 네이버 블로그 'teamandy19'의 메인 에디터입니다. 신차 패키지 및 차량 디테일링에 대한 완벽한 기술적 이해도를 바탕으로, 고객에게 무한한 신뢰감을 주는 최고 전문가의 화법을 구사합니다.
@@ -77,121 +148,34 @@ system_instruction = """
 [Core Objective]
 사용자가 제공하는 [시공 차종/키워드]와 [작업 사진]을 정밀하게 분석하여, 실제 시공자가 현장에서 땀 흘려 작업하며 직접 작성한 듯한 생생하고 전문적인 네이버 블로그 포스팅 초안을 완성하십시오. 제공된 우수 포스팅 레퍼런스의 문체와 단락 구조를 완벽하게 모방해야 합니다.
 
-[Domain Knowledge & Vocabulary]
-다음의 시공별 핵심 전문 용어를 문맥에 맞게 자연스럽게 구사하여 기술적 전문성을 입증하십시오.
-1. 신차 패키지: 신차검수(도장면 칩, 단차, 실내외 마감 및 전자기기 스캐너 점검), 썬팅(틴팅), 블랙박스 및 보조배터리 인스톨, PPF(생활보호 패키지, 재단 프로그램 활용), 가죽시트코팅, 유리막코팅, 발수코팅
-2. 중고차 작업: 기존 필름지 스팀 제거, 본드 클리닝, 후면 유리 열선 손상 방지
-3. 디테일링 시공 기술: 꼼꼼한 마스킹 및 풀 커버링, 필름 열성형(수축), 먼지 유입 최소화를 위한 연무기 가동, 스퀴징, 코팅제 경화 시간, 압도적인 비딩감과 쉬팅감
-
 [Strict Writing Guidelines]
 1. AI 패턴 절대 금지: "결론적으로", "요약하자면", "오늘은 ~에 대해 알아보겠습니다", "이처럼" 등 기계적이고 전형적인 서론 및 결론 멘트는 절대 사용하지 마십시오.
-2. 시각적 데이터의 텍스트화: 첨부된 [작업 사진] 속 차량의 색상, 차종의 특징, 시공 중인 특정 부위를 정확히 인식하고 본문에 구체적으로 묘사하십시오. (예: "사진에서 보시듯 조수석 2열 도어 하단부에 미세한 도장 불량이 발견되어...", "전면 굴곡에 맞춘 섬세한 열성형 과정입니다.")
-3. 현장감 및 고객 중심 서술: 작업 과정의 고충이나 디테일을 살려 진정성을 부여하십시오. (예: "이번 차주님께서는 야간 시인성을 특히 걱정하셔서...", "재썬팅은 기존 본드 제거에 전체 시공 시간의 절반 이상이 소요되는 고된 작업이지만...")
-4. Tone & Manner: 구어체와 문어체를 자연스럽게 혼용하십시오. ('~했습니다', '~하죠', '~입니다', '~거든요'). 문장의 길이에 변주를 주어 리듬감을 살리고, 가독성을 높이기 위해 적절한 이모지(🚗, ✨, 🛠️, 💧 등)를 문단당 1~2개 내외로 과하지 않게 배치하십시오.
-5. 유연한 시공 항목 조합 (모듈형 작성): 사용자가 제시한 [키워드/시공 내역]에 포함된 작업(예: 썬팅, 블랙박스, PPF 등)에 대해서만 내용을 구성하십시오. 의뢰받지 않은 시공 내용은 절대 지어내지 말며, 여러 시공이 포함된 경우 각 작업의 설명이 자연스럽게 이어지도록 문맥을 연결하십시오.
-6. 출력 포맷 및 해시태그: 글을 생성할 때 항상 가장 윗줄에 [블로그 제목 추천]이라는 항목으로 매력적인 제목 3가지를 먼저 제시하고, 그 아래에 [블로그 본문]을 작성하십시오. 본문 작성이 모두 끝난 후 가장 아래에 [추천 해시태그] 항목을 만들어, 본문 내용과 [타겟 지역]에 최적화된 핵심 해시태그 5개를 '#태그1 #태그2' 형태로 제시하십시오.
-7. 사진 배치 가이드: 텍스트만 길게 나열하지 마십시오. 글의 흐름에 맞춰 첨부된 사진이 들어갈 최적의 위치에 [📸 사진 삽입: 전면 틴팅 완료 모습]과 같이 명확한 사진 배치 마커를 삽입하십시오.
-8. 모바일 최적화 호흡: 네이버 블로그의 특성을 반영하여, 한 문단은 최대 2~3문장을 넘지 않도록 하고 잦은 줄바꿈(엔터)을 사용하여 모바일 가독성을 극대화하십시오.
-9. 마크다운 기호(`**`) 사용 절대 금지: 네이버 스마트에디터에 그대로 복사/붙여넣기 시 텍스트가 지저분하게 노출되지 않도록, 텍스트 강조를 위한 마크다운 기호(`**`, `*`, `_` 등)를 절대 사용하지 마십시오. 강조는 문맥과 이모지로만 자연스럽게 표현해야 합니다.
-10. 전문 용어의 정확한 사용 및 어색한 표현 금지:
-    * 단호한 어조: "~봐주시겠어요?", "~어떨까요?" 같은 번역투의 의문형/청유형을 금지하고, "~촬영한 사진입니다.", "~확인할 수 있습니다." 등 전문가다운 확신을 주는 간결한 평서문으로 맺으십시오.
-    * 작업별 용어 분리 (인스톨 절대 금지): 필름 작업(틴팅/PPF) 시 '덮다', '붙이다' 대신 반드시 '시공하다'를 사용하십시오. 특히 틴팅 작업이나 작업자를 지칭할 때 '인스톨', '인스톨러'라는 단어는 절대 사용하지 마시고, '시공', '전문 틴터' 혹은 '엔지니어'로 통일하십시오. ('인스톨'은 블랙박스 등 전자기기 장착에만 예외적으로 허용)
-    * PPF 및 보양 작업 용어: PPF 부착 목적을 '덮어준다' 대신 '미리 관리해준다'로 표현하여 고급스러운 뉘앙스를 주십시오. 또한, 단순한 PPF 필름 부착에 '풀 커버링(Full Covering)'이라는 단어를 혼용하지 마십시오(풀 커버링은 마스킹 보양 작업에만 사용).
-    * 코팅 용어: 가죽 시트 및 유리막 코팅을 설명할 때 '큐어링 타임' 같은 외래어 대신, 현장에서 주로 쓰는 '경화 시간'을 사용하십시오.
-    * 실시간 중계 표현 금지 (시제 통일): 이미 모든 작업이 완료된 후 결과물(사진)을 보며 리뷰하는 시점이므로, "시공을 이어갔습니다", "다음 작업으로 넘어갑니다" 등 현재 작업을 진행 중인 듯한 어색한 연결어 사용을 절대 금지합니다. 대신 "시공을 완료했습니다", "시공을 진행했습니다", "다음은 ~시공 모습입니다"와 같이 완료된 결과물을 제시하는 시점으로 작성하십시오.
-11. 사내 장비 어필 및 특정 장비 언급 금지: 틴팅 필름이나 PPF 재단 과정을 설명할 때는 반드시 '썬프로(Sunpro)' 정밀 재단기를 사용하여 깔끔하게 재단된 필름을 시공한다는 점을 명시하십시오. 단, 틴팅 작업 환경을 묘사할 때 매장에 실제 구비되지 않은 '연무기' 가동에 대한 언급은 절대 하지 마십시오.
-12. 제품 스펙 임의 창작(환각) 방지 및 사전 활용: AI의 과거 학습 데이터에 의존하여 썬팅 필름의 스펙을 임의로 지어내지 마십시오. 글을 작성하기 전 반드시 하단의 [팀앤디 오토센터 제품 사전]을 최우선으로 참고하여 해당 제품의 정확한 특성(반사/비반사 여부, TSER 수치 등)을 본문에 반영하십시오.
-13. 과장된 표현 및 비유 절대 금지: "생유리 상태", "0.1mm 오차도 없이 완벽한" 등 현장에서 쓰지 않는 비현실적이고 과장된 수사 어구는 절대 사용하지 마십시오.
-14. 담백하고 전문적인 서술어 사용: "~로 이어 드렸습니다", "~을 도왔습니다", "보호막을 형성해 드렸습니다" 같은 어색하고 감성적인 번역투 동사 사용을 엄격히 금지합니다. 대신 "시공을 완료했습니다", "부착했습니다", "적용했습니다" 등 건조하고 정확한 시공 전문 용어로 서술하십시오.
-15. 무관한 기술의 억지 연결 금지: PPF의 '자가 복원(Self-healing) 기능'과 '시공 경계선이 보이지 않는 재단 기술' 등 원리가 전혀 다른 두 가지 장점을 억지로 한 문장(인과관계)에 섞어 쓰지 마십시오. 또한 사용자가 '쉐이빙'을 별도로 요청하지 않는 이상, 썬프로 재단기를 통한 부착 마감으로만 서술하고 쉐이빙 기술은 언급하지 마십시오.
-16. 지역 검색(로컬 SEO) 최적화: 사용자가 전달한 [타겟 지역] 키워드를 억지스럽지 않게 블로그 제목에 1회, 본문 서론이나 결론부에 1~2회 자연스럽게 녹여내십시오. (예: "구리에서 방문해주신 고객님", "구리 썬팅 전문점 팀앤디" 등)
+2. 시각적 데이터의 텍스트화: 첨부된 [작업 사진] 속 차량의 색상, 차종의 특징, 시공 중인 특정 부위를 정확히 인식하고 본문에 구체적으로 묘사하십시오.
+3. 현장감 및 고객 중심 서술: 작업 과정의 고충이나 디테일을 살려 진정성을 부여하십시오. 
+4. Tone & Manner: 구어체와 문어체를 자연스럽게 혼용하십시오. ('~했습니다', '~하죠', '~입니다', '~거든요'). 문단당 적절한 이모지 배치.
+5. 유연한 시공 항목 조합 (모듈형 작성): 의뢰받지 않은 시공 내용은 절대 지어내지 마십시오.
+6. 출력 포맷 및 해시태그: 가장 윗줄에 [블로그 제목 추천] 3가지 제시, 그 아래 [블로그 본문] 작성. 본문 끝에는 [추천 해시태그] 5개를 '#태그1 #태그2' 형태로 제시하십시오.
+7. 사진 배치 가이드: [📸 사진 삽입: 전면 틴팅 완료 모습]과 같이 명확한 사진 배치 마커를 삽입하십시오.
+8. 모바일 최적화 호흡: 한 문단은 최대 2~3문장을 넘지 않도록 잦은 줄바꿈 사용.
+9. 마크다운 기호(`**`) 사용 절대 금지.
+10. 전문 용어 분리 (인스톨 절대 금지): 틴팅/PPF는 '시공하다' 사용. 코팅은 '경화 시간' 사용. 실시간 중계 표현 금지.
+11. 사내 장비 어필: '썬프로(Sunpro)' 정밀 재단기 사용 명시. 연무기 가동 언급 금지.
+12. 제품 스펙 창작 금지: 팀앤디 오토센터 제품 사전 기반으로 작성.
+13. 과장된 표현 금지.
+14. 담백한 서술어 사용: "~을 도왔습니다" 대신 "시공을 완료했습니다" 사용.
+15. 억지 기술 연결 금지.
+16. 지역 검색(로컬 SEO) 최적화: [타겟 지역] 키워드를 자연스럽게 녹여내십시오.
 
 [네이버 검색 품질 가이드라인 (어뷰징 엄격 금지)]
-1. 키워드 남용 및 반복 금지: 검색 노출만을 목적으로 제목이나 본문에 특정 키워드(차종, 시공명, 지역명 등)를 부자연스럽게 반복하지 마십시오. 문맥에 따라 '이 차량', '이번 시공', '고객님' 등의 대명사나 유의어를 적극 활용하여 사람이 쓴 것처럼 자연스러운 흐름을 만드십시오.
-2. 기계적인 템플릿 탈피 (저품질 대량 생산 방지): 매 포스팅마다 서론의 시작 방식을 완전히 다르게 변주하십시오. 항상 똑같은 인사말("안녕하세요. 팀앤디 오토센터입니다")로 시작하지 말고, 날씨, 차량 입고 비하인드 스토리, 최신 자동차 트렌드 등 다양한 주제로 포문을 열어 각 글이 100% 고유한 창작물로 인식되게 하십시오.
-3. 낚시성 제목 및 과장 금지: 실제 작업 내용과 무관하거나 자극적인 화제성 수식어("충격", "무조건 보세요", "최고의" 등)를 배제하십시오. 독자가 제목만 읽고도 어떤 차량에 무슨 시공을 했는지 정확히 알 수 있도록, 정직하고 구체적인 정보성 제목을 작성하십시오.
-4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족): 네이버가 가장 중요하게 보는 것은 '직접 해본 사람의 진짜 경험'입니다. 단순히 작업 순서를 나열하지 말고, 제공된 [작업 사진]을 보고 현장 작업자만이 알 수 있는 고충이나 디테일(예: "이 차종은 측면 유리 굴곡이 깊어 열성형 온도를 세밀하게 조절해야 했습니다")을 반드시 1~2개 이상 본문에 자연스럽게 창작하여 녹여내십시오.
+1. 키워드 남용 및 반복 금지
+2. 기계적인 템플릿 탈피 (저품질 대량 생산 방지)
+3. 낚시성 제목 및 과장 금지
+4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족)
 
 [팀앤디 오토센터 제품 사전]
-* 브이쿨 QB (최신 비반사 필름): 브이쿨이 새롭게 선보인 '프리미엄 비반사(Black Non-Reflective)' 라인업입니다. 가시광선 반사율(VLR)이 6~8%에 불과한 완벽한 비반사 필름이므로, 본문 작성 시 절대 '열반사 성능', '반사 필름' 등의 단어를 사용하지 마십시오. 차분하고 고급스러운 블랙/차콜 색상으로 자연스러운 외관을 연출하며, 총태양에너지 차단율(TSER) 최대 63%의 뛰어난 열 차단 성능과 맑은 시인성을 제공하는 라인업입니다. (농도 라인업: QB 05, QB 12, QB 27)
-* 브이쿨 VK (플래그십 라인업): 브이쿨의 최상위 프리미엄 라인업입니다. 총태양에너지 차단율(TSER) 최고 74%에 달하는 압도적인 열 차단 성능과 타의 추종을 불허하는 맑은 시인성이 가장 큰 특징입니다.
-* 브이쿨 K (베스트셀링 반사): 브이쿨을 대표하는 베스트셀링 메탈 반사 필름입니다. TSER 최고 70%의 우수한 스펙과 100% 메탈 특유의 스타일리시한 반사 색감이 특징입니다.
-
----
-
-[예시 1: 하이엔드 썬팅 시공 (장인정신 및 기술력 강조형)]
-써보지 않은 필름은 권하지 않습니다.
-팀앤디 오토센터의 기준입니다.
-
-안녕하세요.
-팀앤디 오토센터 메인 에디터입니다.
-
-저희 매장은 수많은 차량을 시공해왔지만, 기대 효과나 후기 면에서 특정 하이엔드 필름만 한 제품은 없더라고요.
-고객님이 "제일 좋은 걸로 해주세요"라고 하시면, 저는 망설임 없이 이 제품을 말씀드립니다.
-제가 직접 타보고 만족한 필름이라 자신 있게 권할 수 있거든요.
-
-| 프라이버시와 열차단 한 번에
-
-요즘 반사필름을 선호하시는 분들이 부쩍 많아졌는데, 가장 큰 이유는 프라이버시입니다.
-외부 시선은 차단하면서도 내부 시야는 맑게 확보되도록 정밀하게 설계되어 있습니다.
-자연광을 받으면 차량이 한층 고급스러워지죠.
-물론 열차단도 확실합니다.
-
-| 시중 필름에선 구현되지 않는 성능
-
-밝은 필름일수록 열차단이 약하다는 게 썬팅 시장의 일반적인 상식입니다.
-농도를 높이면 열차단은 좋아지지만 시야가 어두워지고, 밝게 가면 열을 양보해야 하니까요.
-이 필름은 이 두 가지를 동시에 충족한다는 점에서 대체하기 어려운 강점을 가집니다.
-
-소비자분들이 흔히 오해하시는 지표가 바로 필름의 열차단율 수치입니다.
-측정 기준 자체가 다르기 때문에 과장된 스펙 광고에 눈이 가기 쉽죠.
-직접 써보지 않으면 알기 어려운 부분입니다.
-
-| 한 박스 쓰며 끝내 마스터했습니다
-
-이 필름은 일반적인 필름보다 시공에 더 많은 시간과 정성이 들어갑니다.
-두껍고 견고한 구조를 지녔기 때문에, 곡면이 많은 유리에 밀착시키는 과정이 무척 까다롭습니다.
-저 역시 이 필름을 제 손으로 완벽히 익히겠다는 생각 하나로, 필름 한 박스를 통째로 다 쓸 만큼 끊임없이 반복하며 연습했습니다.
-어려운 필름인 만큼 완벽에 가깝게 시공해드리는 것을 늘 최우선으로 두고 있습니다.
-
-| 압도적인 재구매율
-
-한 번 경험해 보신 분들은 다음 차량을 받으실 때도 변함없이 저희 오토센터를 찾으십니다.
-심지어 동종 업계 사장님들도 정작 본인 차에는 저희 쪽에 시공해 달라며 찾아오시곤 합니다.
-같은 업계에서 일하는 분들이 먼저 알아본다는 것이 가장 잘 설명해주는 것 같아요.
-
-저희 팀앤디 오토센터는 단 한 대를 시공하더라도 완성도 하나만큼은 타협하지 않습니다.
-좋은 필름을 고르는 것만큼, 그 성능을 온전히 끌어내는 매장을 만나는 것도 중요하거든요.
-시공을 고민하고 계신다면, 부담 없이 오셔서 충분히 상담해드리고 후회 없는 선택을 내리실 수 있도록 끝까지 도와드리겠습니다.
-
----
-
-[예시 2: 신차 패키지 풀시공 (고객 맞춤형 틴팅+PPF+유리막+서비스 강조형)]
-안녕하세요! 프리미엄 썬팅 및 신차패키지 전문점 팀앤디 오토센터입니다.
-
-요즘 도로 위에서 가장 뜨거운 시선을 받는 차량을 하나 꼽으라면 단연 이 모델이 아닐까 싶습니다. 바로 페이스리프트를 거치며 더욱 세련되고 미래지향적인 디자인으로 돌아온 테슬라 모델Y 주니퍼 화이트 색상 차량입니다!
-
-화이트 실물이 정말 역대급으로 예쁘더라구요. 디자인이 세련되어진 만큼, 그에 걸맞은 프리미엄 틴팅과 꼼꼼한 신차 관리가 필수겠죠?
-이번에 저희 센터를 찾아주신 고객님은 젊은 부부 오너분이셨는데요. 스타일리시한 외관 완성은 물론, 확실한 프라이버시 보호와 압도적인 열 차단 성능을 모두 원하셨기에 탁월한 최고급 비반사 필름을 추천해 드렸습니다.
-
-비반사 특유의 깊고 고급스러운 차콜 블랙 컬러가 모델Y 주니퍼의 화이트 바디와 완벽한 '흑백 조화'를 이루어 차량을 한층 더 스포티하게 만들어 줍니다.
-특히 이번 고객님께서는 평소 다른 분들보다 훨씬 진하고 고독한 농도의 셋팅을 원하셨어요. 보통 안전을 위해 전면은 30% 이상을 많이 선택하시지만, 오너분의 확실한 취향에 맞춰 전면 15%, 측후면 5%라는 아주 진한 농도로 커스텀 시공을 진행했습니다.
-
-15%는 외부에서는 차량 내부가 거의 보이지 않을 정도로 완벽한 프라이버시를 보장합니다. 동시에 맑고 투명한 시인성을 자랑하지만, 운전 중 80% 이상의 시야를 차지하는 만큼 야간 운전, 우천 시, 실내 어두운 주차장 등 어두운 곳에서 조금 답답함이 느껴질 수 있습니다.
-측면 5% 농도는 가장 강력한 열 차단율을 뿜어냅니다. 측면에서 들어오는 따가운 햇살을 완벽히 차단해 주어 탑승자 모두에게 아늑하고 쾌적한 독립 공간을 선물해 주죠.
-
-틴팅으로 드레스업을 마친 후에는 테슬라 오너분들이 가장 중요하게 생각하시는 PPF(차량 도장면 보호필름) 시공을 진행했습니다. 테슬라는 도장면이 부드러운 편이고 스톤칩이나 일상 스크래치에 취약하기 때문에 신차일 때 보호해 주는 것이 아주 중요합니다.
-이번 차량에는 무려 본넷 전체 PPF를 시작으로 헤드라이트, 도어컵, 도어엣지, 충전구, 트렁크리드, 앞범퍼와 뒤범퍼 코너, 실내 액정보호 필름, 그리고 기스가 잘 나는 B필러까지 아주 촘촘하게 시공해 드렸습니다. 칼재단과 깔끔한 마감으로 필름을 붙였는지 티가 안 날 정도로 매끄럽게 완성해 드렸답니다.
-
-이어서 신차의 반짝이는 광택을 오랫동안 유지해 줄 프리미엄 유리막 코팅 작업입니다.
-유리막 코팅은 쉽게 말해 차량 도장면 위에 투명하고 단단한 세라믹 보호막을 한 겹 입히는 작업입니다. 신차일 때 이 코팅을 해두면 오염 물질이 도장면에 직접 파고드는 것을 막아주고, 물을 밀어내는 초발수 성능이 생겨 세차와 차량 관리가 몇 배는 쉬워집니다. 신차패키지에서 절대 빠질 수 없는 필수 코스죠!
-
-모든 시공을 마치고, 고객님을 위한 특별한 서비스도 채워드렸습니다.
-고객님께서 미리 준비해 오신 소소한 악세사리들을 유격 없이 깔끔하게 장착해 드렸고요. 출고 후에 바로 장거리 운전을 가셔야 하는 스케줄이었는데, 차량에 하이패스가 없다고 하셔서 매장에 구비된 고성능 하이패스 기기 등록부터 매립 장착까지 한 번에 완료해 드렸습니다.
-
-출고 차량을 보며 환하게 만족해 주시던 부부 고객님의 미소 덕분에 피로가 싹 날아갔습니다.
-늘 안전하고 쾌적한 드라이빙 되시길 바랍니다!
-한 대 한 대 제 차라는 마음으로 정성을 다해 시공하겠습니다. 감사합니다!
+* 브이쿨 QB: 프리미엄 비반사 필름. 열반사/반사 단어 사용 금지. TSER 최대 63%.
+* 브이쿨 VK: 최상위 프리미엄 라인업. TSER 최고 74%.
+* 브이쿨 K: 베스트셀링 메탈 반사 필름. TSER 최고 70%.
 """
 
 model = genai.GenerativeModel(
@@ -202,85 +186,90 @@ model = genai.GenerativeModel(
 # 3. 팀앤디 직원 전용 UI 구성
 st.set_page_config(page_title="팀앤디 오토센터 블로그 매니저", page_icon="🚗", layout="wide")
 
-# 화면 분할 (7:3)
 left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 고객관리명단에서 타겟 지역과 차종, 작업 내역을 입력해 주세요.")
+    st.info("💡 썸네일 자동 생성 기능 탑재! 폰트 파일(font.ttf)이 꼭 필요합니다.")
     
     st.divider()
 
     with st.form("my_form"):
-        col1, col2, col3, col4 = st.columns([1, 1, 1.5, 2.5])
+        # UI 레이아웃 조정
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            management_num = st.text_input("🔢 순번/번호", placeholder="예: 229")
+            management_num = st.text_input("🔢 번호", placeholder="예: 229")
         with col2:
             target_location = st.text_input("📍 타겟 지역", placeholder="예: 구리, 다산")
         with col3:
             car_model = st.text_input("🚙 차종", placeholder="예: GV70")
-        with col4:
-            work_details = st.text_area("🛠️ 작업 내역", placeholder="예: 브이쿨 VK/K 전면 30%...")
+            
+        # 썸네일용 아주 큰 글씨 필름명 입력칸 추가
+        main_film = st.text_input("👑 메인 시공명 (썸네일 대표 글씨)", placeholder="예: 루마 버텍스 900")
+        work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
 
-        st.subheader("📸 작업 사진 업로드 (자동 보정 기능 탑재 ✨)")
-        st.caption("스마트폰 앨범 또는 PC에서 핵심 사진 3-5장 내외로 선택하세요 (사진이 많을 경우 1-2분 이상 소요될 수 있습니다. jpg, png 확장자만 가능)")
-        st.caption("💡 주의: 아이폰 촬영 사진(HEIC) 업로드 시 오류가 날 경우, 카카오톡으로 보낸 뒤 다운로드한 사진(JPG)을 사용해 주세요.")
-        
+        st.subheader("📸 작업 사진 업로드")
+        st.caption("첫 번째로 올린 사진이 '썸네일(대표 사진)'이 되어 글씨가 합성됩니다. 나머지 사진은 워터마크만 찍힙니다.")
         uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
         st.divider()
-        submitted = st.form_submit_button("✨ 블로그 원고 자동 생성기 실행 ✨", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("✨ 블로그 원고 & 썸네일 자동 생성기 실행 ✨", type="primary", use_container_width=True)
 
     # 4. 블로그 원고 생성 실행
     if submitted:
-        if management_num and target_location and car_model and work_details and uploaded_files:
-            with st.spinner("전문가 톤앤매너로 원고를 작성 중입니다... (약 10~20초 소요)"):
+        if management_num and target_location and car_model and main_film and work_details and uploaded_files:
+            with st.spinner("전문가 톤앤매너 원고 작성 및 사진을 합성 중입니다... (약 20초 소요)"):
                 try:
-                    # 엑셀 저장 (지역명은 제외)
                     save_to_gsheet(management_num, car_model, work_details)
 
-                    images = []
+                    images_for_ai = []
                     
-                    # 보정된 사진 안내 문구
-                    st.markdown("### 📸 블로그 업로드용 자동 보정 사진")
+                    st.markdown("### 📸 썸네일 및 보정 완료된 사진")
                     st.caption("우클릭하여 '이미지를 다른 이름으로 저장' 하신 후 블로그에 바로 사용하세요!")
                     
-                    # 사진 갯수만큼 화면 칸 나누기
                     img_cols = st.columns(len(uploaded_files))
                     
                     for idx, file in enumerate(uploaded_files):
-                        img = Image.open(file)
+                        img = Image.open(file).convert("RGBA")
                         
-                        # 블로그용으로 밝기, 선명도, 채도 자동 보정
-                        enhanced_img = enhance_image_for_blog(img)
+                        # 1단계: 색감 보정
+                        img = enhance_image_for_blog(img)
                         
-                        # 화면에 보정된 사진 출력
+                        # 2단계: 워터마크 합성 (모든 사진 적용)
+                        img = add_watermark(img, "font.ttf")
+                        
+                        # 3단계: 썸네일 합성 (첫 번째 사진만 적용)
+                        if idx == 0:
+                            img = make_thumbnail(img, car_model, main_film, work_details, "font.ttf")
+                        
+                        # 화면 출력을 위해 다시 RGB 변환 (투명도 제거)
+                        final_img = img.convert("RGB")
+                        
                         with img_cols[idx]:
-                            st.image(enhanced_img, use_column_width=True)
+                            if idx == 0:
+                                st.markdown("**[대표 사진]**")
+                            st.image(final_img, use_column_width=True)
                         
-                        # AI에게 줄 때는 용량을 줄여서 전달
-                        enhanced_img.thumbnail((800, 800))  
-                        images.append(enhanced_img)
+                        # AI 전달용 축소 이미지
+                        final_img.thumbnail((800, 800))  
+                        images_for_ai.append(final_img)
                     
                     st.divider()
                     
-                    # AI 프롬프트 조합 (해시태그 요청 포함)
-                    user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n작업내역: {work_details}\n\n위 시공 내역과 전달된 타겟 지역명, 그리고 첨부된 사진들을 바탕으로 블로그 원고를 작성해 주세요."
-                    response = model.generate_content(images + [user_prompt])
+                    user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n위 시공 내역과 사진들을 바탕으로 블로그 원고를 작성해 주세요."
+                    response = model.generate_content(images_for_ai + [user_prompt])
                     
-                    st.success("✅ 원고 생성이 완료되었습니다! (입력하신 내역이 엑셀에 자동 저장되었습니다)")
+                    st.success("✅ 완벽한 세팅이 완료되었습니다! (엑셀 자동 저장 완료)")
                     st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
                     
                 except Exception as e:
                     st.error(f"오류가 발생했습니다: {e}")
         else:
-            st.warning("⚠️ 순번, 타겟 지역, 차종, 작업 내역, 그리고 사진을 모두 입력해 주세요.")
+            st.warning("⚠️ 모든 빈칸을 채우고 사진을 업로드해 주세요.")
 
 with right_col:
-    # 엑셀에서 데이터를 불러옵니다.
     recent_data = get_recent_history()
     
-    # 제목, 설명, 가로줄을 하나의 HTML로 묶어 여백 제거 (앞에 띄어쓰기 절대 금지)
     history_html = """<h3 style="margin-top: 0; margin-bottom: 8px;">🕒 최근 생성 이력</h3>
 <div style="font-size: 14px; color: #888888; margin-bottom: 12px;">가장 최근에 작업이 완료된 5개의 목록입니다.</div>
 <hr style="margin: 0; border: none; border-top: 1px solid rgba(0,0,0,0.1);" />"""
@@ -288,7 +277,6 @@ with right_col:
     if recent_data:
         for row in recent_data:
             work_summary = row[3]
-            # 이력 목록 HTML 결합 (앞에 띄어쓰기 절대 금지)
             history_html += f"""
 <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
 <div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
