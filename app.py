@@ -61,7 +61,7 @@ def enhance_image_for_blog(img):
     img = enhancer_color.enhance(1.1)
     return img
 
-# [★신규] 상단 워터마크 자동 삽입
+# [★수정됨] 상단 워터마크 자동 삽입 (전화번호 제거 및 박스 크기 조절)
 def add_watermark(img, font_path="font.ttf"):
     # 사진 크기를 가로 1000px로 통일하여 글씨 크기 편차 방지
     w, h = img.size
@@ -73,18 +73,15 @@ def add_watermark(img, font_path="font.ttf"):
     
     try:
         font_title = ImageFont.truetype(font_path, 28)
-        font_phone = ImageFont.truetype(font_path, 18)
     except IOError:
         font_title = ImageFont.load_default()
-        font_phone = ImageFont.load_default()
         st.warning("⚠️ 폰트 파일(font.ttf)이 없어 기본 글꼴로 표시됩니다.")
         
-    # 검은색 반투명 배경 박스 그리기 (좌측 상단)
-    draw.rectangle([(20, 20), (220, 85)], fill=(0, 0, 0, 220))
+    # 검은색 반투명 배경 박스 그리기 (전화번호가 빠졌으므로 세로 높이 축소)
+    draw.rectangle([(20, 20), (195, 65)], fill=(0, 0, 0, 220))
     
-    # 텍스트 삽입
+    # 텍스트 삽입 (TEAMANDY만 남김)
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
-    draw.text((30, 60), "📞 010-7990-0779", font=font_phone, fill="white")
     
     return img
 
@@ -140,7 +137,7 @@ def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 2. 가이드라인 세팅 (기존과 동일)
+# 2. 가이드라인 세팅
 system_instruction = """
 [Role & Identity]
 당신은 10년 이상의 현장 경험을 보유한 '팀앤디 오토센터'의 수석 엔지니어이자, 네이버 블로그 'teamandy19'의 메인 에디터입니다. 신차 패키지 및 차량 디테일링에 대한 완벽한 기술적 이해도를 바탕으로, 고객에게 무한한 신뢰감을 주는 최고 전문가의 화법을 구사합니다.
