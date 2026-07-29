@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
+import re 
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -61,6 +62,52 @@ def enhance_image_for_blog(img):
     img = enhancer_color.enhance(1.1)
     return img
 
+# [★업그레이드] 3.6 최신 AI 비전 인식 기반 번호판 자동 모자이크
+def auto_blur_license_plate(img):
+    try:
+        # [수정] 더 똑똑하고 빠르며 저렴한 최신 3.6 모델 탑재!
+        vision_model = genai.GenerativeModel("gemini-3.6-flash")
+        
+        prompt = """Look at this image. Find the vehicle license plate (including temporary wooden/paper plates with Korean text and numbers).
+        Return ONLY a JSON array with the bounding box coordinates normalized to 1000: [ymin, xmin, ymax, xmax].
+        If no plate is visible, return an empty array: []. Do not output any other text."""
+        
+        temp_img = img.copy()
+        temp_img.thumbnail((800, 800))
+        
+        response = vision_model.generate_content([temp_img, prompt])
+        text = response.text.strip()
+        
+        numbers = re.findall(r'\d+', text)
+        
+        if len(numbers) >= 4:
+            ymin, xmin, ymax, xmax = map(int, numbers[:4])
+            
+            if xmin < xmax and ymin < ymax:
+                w, h = img.size
+                
+                top = int((ymin / 1000) * h)
+                left = int((xmin / 1000) * w)
+                bottom = int((ymax / 1000) * h)
+                right = int((xmax / 1000) * w)
+                
+                pad_w = int((right - left) * 0.05)
+                pad_h = int((bottom - top) * 0.05)
+                
+                left = max(0, left - pad_w)
+                right = min(w, right + pad_w)
+                top = max(0, top - pad_h)
+                bottom = min(h, bottom + pad_h)
+                
+                plate_region = img.crop((left, top, right, bottom))
+                blurred_region = plate_region.filter(ImageFilter.GaussianBlur(radius=25))
+                
+                img.paste(blurred_region, (left, top))
+    except Exception as e:
+        pass
+        
+    return img
+
 # [★기존] 상단 워터마크 자동 삽입
 def add_watermark(img, font_path="font.ttf"):
     w, h = img.size
@@ -81,7 +128,7 @@ def add_watermark(img, font_path="font.ttf"):
     
     return img
 
-# [★수정됨] 대표 사진(썸네일) 하단 디자인 자동 삽입 (메인 글씨 크기 축소 및 간격 조절)
+# [★기존] 대표 사진(썸네일) 하단 디자인 자동 삽입
 def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"):
     w, h = img.size
     
@@ -102,7 +149,7 @@ def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"
     
     try:
         font_car = ImageFont.truetype(font_path, 35)
-        font_film = ImageFont.truetype(font_path, 48) # [수정] 70 -> 48로 축소하여 조화롭게 변경
+        font_film = ImageFont.truetype(font_path, 48) 
         font_detail = ImageFont.truetype(font_path, 22)
     except IOError:
         font_car = ImageFont.load_default()
@@ -115,7 +162,6 @@ def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"
         x_pos = (w - text_w) / 2
         draw_obj.text((x_pos, y_pos), text, font=font, fill="white")
         
-    # [수정] 글씨가 작아진 만큼 상하 간격을 중앙으로 모아주었습니다.
     draw_centered_text(draw, f"'{car_model}'", font_car, box_top + 35)
     draw_centered_text(draw, main_film, font_film, box_top + 90)
     
@@ -127,7 +173,7 @@ def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 2. 가이드라인 세팅
+# 2. 가이드라인 세팅 
 system_instruction = """
 [Role & Identity]
 당신은 10년 이상의 현장 경험을 보유한 '팀앤디 오토센터'의 수석 엔지니어이자, 네이버 블로그 'teamandy19'의 메인 에디터입니다. 신차 패키지 및 차량 디테일링에 대한 완벽한 기술적 이해도를 바탕으로, 고객에게 무한한 신뢰감을 주는 최고 전문가의 화법을 구사합니다.
@@ -137,36 +183,32 @@ system_instruction = """
 
 [Strict Writing Guidelines]
 1. AI 패턴 절대 금지: "결론적으로", "요약하자면", "오늘은 ~에 대해 알아보겠습니다", "이처럼" 등 기계적이고 전형적인 서론 및 결론 멘트는 절대 사용하지 마십시오.
-2. 시각적 데이터의 텍스트화: 첨부된 [작업 사진] 속 차량의 색상, 차종의 특징, 시공 중인 특정 부위를 정확히 인식하고 본문에 구체적으로 묘사하십시오. (예: "사진에서 보시듯 조수석 2열 도어 하단부에 미세한 도장 불량이 발견되어...", "전면 굴곡에 맞춘 섬세한 열성형 과정입니다.")
-3. 현장감 및 고객 중심 서술: 작업 과정의 고충이나 디테일을 살려 진정성을 부여하십시오. (예: "이번 차주님께서는 야간 시인성을 특히 걱정하셔서...", "재썬팅은 기존 본드 제거에 전체 시공 시간의 절반 이상이 소요되는 고된 작업이지만...")
+2. 시각적 데이터의 텍스트화: 첨부된 [작업 사진] 속 차량의 색상, 차종의 특징, 시공 중인 특정 부위를 정확히 인식하고 본문에 구체적으로 묘사하십시오.
+3. 현장감 및 고객 중심 서술: 작업 과정의 고충이나 디테일을 살려 진정성을 부여하십시오. 
 4. Tone & Manner: 구어체와 문어체를 자연스럽게 혼용하십시오. ('~했습니다', '~하죠', '~입니다', '~거든요'). 문장의 길이에 변주를 주어 리듬감을 살리고, 가독성을 높이기 위해 적절한 이모지(🚗, ✨, 🛠️, 💧 등)를 문단당 1~2개 내외로 과하지 않게 배치하십시오.
-5. 유연한 시공 항목 조합 (모듈형 작성): 사용자가 제시한 [키워드/시공 내역]에 포함된 작업(예: 썬팅, 블랙박스, PPF 등)에 대해서만 내용을 구성하십시오. 의뢰받지 않은 시공 내용은 절대 지어내지 말며, 여러 시공이 포함된 경우 각 작업의 설명이 자연스럽게 이어지도록 문맥을 연결하십시오.
-6. 출력 포맷 및 해시태그: 글을 생성할 때 항상 가장 윗줄에 [블로그 제목 추천]이라는 항목으로 매력적인 제목 3가지를 먼저 제시하고, 그 아래에 [블로그 본문]을 작성하십시오. 본문 작성이 모두 끝난 후 가장 아래에 [추천 해시태그] 항목을 만들어, 본문 내용과 [타겟 지역]에 최적화된 핵심 해시태그 5개를 '#태그1 #태그2' 형태로 제시하십시오.
-7. 사진 배치 가이드: 텍스트만 길게 나열하지 마십시오. 글의 흐름에 맞춰 첨부된 사진이 들어갈 최적의 위치에 [📸 사진 삽입: 전면 틴팅 완료 모습]과 같이 명확한 사진 배치 마커를 삽입하십시오.
-8. 모바일 최적화 및 단락 구성: 한 문장마다 무조건 엔터를 치는 것을 절대 금지합니다. 한 문단은 2~3개의 문장으로 짜임새 있게 구성하여 글의 응집력을 높이고, 문단과 문단 사이에만 줄바꿈(엔터)을 하여 여백을 주십시오.
-9. 마크다운 금지 및 시각적 소제목 활용: 네이버 스마트에디터 복사 시 오류를 방지하기 위해 텍스트 강조용 마크다운(`**`, `*`, `_` 등)은 절대 사용하지 마십시오. 단, 밋밋한 텍스트를 방지하기 위해 다음 두 가지를 반드시 적용하십시오.
-   - 소제목 배치: 본문 내용이 전환될 때마다 시각적인 기호(■, ▶, | 등)를 활용한 [소제목]을 2~3회 이상 배치하여 단락을 명확히 구분하십시오. (예: "■ 완벽한 프라이버시를 위한 선택")
-   - 강조 포인트 유도: 네이버 블로그 에디터에서 직원이 직접 굵게(Bold) 처리할 수 있도록, 본문 내의 핵심 키워드나 스펙은 '작은따옴표'나 [대괄호]로 감싸 시각적으로 띄워주십시오.
-10. 전문 용어 분리 (인스톨 절대 금지): 필름 작업(틴팅/PPF) 시 '덮다', '붙이다' 대신 반드시 '시공하다'를 사용하십시오. 특히 틴팅 작업이나 작업자를 지칭할 때 '인스톨', '인스톨러'라는 단어는 절대 사용하지 마시고, '시공', '전문 틴터' 혹은 '엔지니어'로 통일하십시오. 
-    * 코팅 용어: 가죽 시트 및 유리막 코팅을 설명할 때 '큐어링 타임' 같은 외래어 대신 '경화 시간'을 사용하십시오.
-    * 실시간 중계 표현 금지: 이미 모든 작업이 완료된 후 리뷰하는 시점이므로 "시공을 이어갔습니다" 등 현재 진행 중인 듯한 표현을 금지하고, "시공을 완료했습니다", "다음은 ~시공 모습입니다"와 같이 완료된 결과물을 제시하는 시점으로 작성하십시오.
-11. 사내 장비 어필 및 특정 장비 언급 금지: 틴팅 필름이나 PPF 재단 과정을 설명할 때는 반드시 '썬프로(Sunpro)' 정밀 재단기를 사용하여 깔끔하게 재단된 필름을 시공한다는 점을 명시하십시오. 단, 매장에 실제 구비되지 않은 '연무기' 가동에 대한 언급은 절대 하지 마십시오.
-12. 제품 스펙 임의 창작(환각) 방지 및 사전 활용: AI의 과거 학습 데이터에 의존하여 썬팅 필름의 스펙을 임의로 지어내지 마십시오. 글을 작성하기 전 반드시 하단의 [팀앤디 오토센터 제품 사전]을 최우선으로 참고하여 해당 제품의 정확한 특성을 본문에 반영하십시오.
-13. 과장된 표현 및 비유 절대 금지: "생유리 상태", "0.1mm 오차도 없이 완벽한" 등 현장에서 쓰지 않는 비현실적이고 과장된 수사 어구는 절대 사용하지 마십시오.
-14. 담백하고 전문적인 서술어 사용: "~로 이어 드렸습니다", "~을 도왔습니다" 같은 어색하고 감성적인 번역투 동사 대신 "시공을 완료했습니다", "적용했습니다" 등 건조하고 정확한 시공 전문 용어로 서술하십시오.
-15. 무관한 기술의 억지 연결 금지: PPF의 '자가 복원 기능'과 '시공 경계선 기술' 등 원리가 다른 두 장점을 억지로 섞어 쓰지 마십시오. 
-16. 지역 검색(로컬 SEO) 최적화: 사용자가 전달한 [타겟 지역] 키워드를 억지스럽지 않게 블로그 제목에 1회, 본문 서론이나 결론부에 1~2회 자연스럽게 녹여내십시오. 
+5. 유연한 시공 항목 조합 (모듈형 작성): 사용자가 제시한 [키워드/시공 내역]에 포함된 작업에 대해서만 내용을 구성하십시오. 
+6. 출력 포맷 및 해시태그: 가장 윗줄에 [블로그 제목 추천] 3가지 제시, 그 아래 [블로그 본문] 작성. 본문 끝에는 [추천 해시태그] 항목을 만들어 핵심 해시태그 5개를 '#태그1 #태그2' 형태로 제시하십시오.
+7. 사진 배치 가이드: 텍스트만 길게 나열하지 마십시오. 글의 흐름에 맞춰 [📸 사진 삽입: 전면 틴팅 완료 모습]과 같이 사진 배치 마커를 삽입하십시오.
+8. 모바일 최적화 및 단락 구성: 한 문장마다 무조건 엔터를 치는 것을 절대 금지합니다. 한 문단은 2~3개의 문장으로 짜임새 있게 구성하십시오.
+9. 마크다운 금지 및 시각적 소제목 활용: 마크다운(`**`, `*` 등) 절대 금지. 대신 단락 구분을 위한 시각적 기호(■, ▶ 등)를 활용한 [소제목] 배치 및 '작은따옴표'나 [대괄호]를 활용한 강조 포인트 유도를 반드시 적용하십시오.
+10. 전문 용어 분리 (인스톨 절대 금지): 틴팅/PPF는 '시공하다' 사용. 코팅은 '경화 시간' 사용. "시공을 이어갔습니다" 등 실시간 중계 표현 금지.
+11. 사내 장비 어필 및 특정 장비 언급 금지: '썬프로(Sunpro)' 정밀 재단기 사용 명시. 연무기 가동 언급 금지.
+12. 제품 스펙 임의 창작 방지: [팀앤디 오토센터 제품 사전] 최우선 참고.
+13. 과장된 표현 및 비유 절대 금지.
+14. 담백하고 전문적인 서술어 사용: "~을 도왔습니다" 금지, "시공을 완료했습니다", "적용했습니다" 사용.
+15. 무관한 기술의 억지 연결 금지.
+16. 지역 검색(로컬 SEO) 최적화: [타겟 지역] 키워드를 자연스럽게 녹여내십시오. 
 
 [네이버 검색 품질 가이드라인 (어뷰징 엄격 금지)]
-1. 키워드 남용 및 반복 금지: 검색 노출만을 목적으로 제목이나 본문에 특정 키워드(차종, 시공명, 지역명 등)를 부자연스럽게 반복하지 마십시오. 문맥에 따라 대명사나 유의어를 적극 활용하여 사람이 쓴 것처럼 자연스러운 흐름을 만드십시오.
-2. 기계적인 템플릿 탈피 (저품질 대량 생산 방지): 매 포스팅마다 서론의 시작 방식을 완전히 다르게 변주하십시오. 항상 똑같은 인사말("안녕하세요. 팀앤디 오토센터입니다")로 시작하지 말고, 날씨, 차량 입고 스토리, 자동차 트렌드 등 다양한 주제로 포문을 열어 각 글이 100% 고유한 창작물로 인식되게 하십시오.
-3. 낚시성 제목 및 과장 금지: 실제 작업 내용과 무관하거나 자극적인 화제성 수식어("충격", "무조건 보세요" 등)를 배제하고, 독자가 제목만 읽고도 어떤 차량에 무슨 시공을 했는지 정확히 알 수 있도록 정직한 제목을 작성하십시오.
-4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족): 단순히 작업 순서를 나열하지 말고, 제공된 [작업 사진]을 보고 현장 작업자만이 알 수 있는 고충이나 디테일(예: "이 차종은 측면 유리 굴곡이 깊어 열성형 온도를 세밀하게 조절해야 했습니다")을 반드시 본문에 자연스럽게 창작하여 녹여내십시오.
+1. 키워드 남용 및 반복 금지
+2. 기계적인 템플릿 탈피 (저품질 대량 생산 방지)
+3. 낚시성 제목 및 과장 금지
+4. '생생한 1인칭 경험' 중심 서술 (E-E-A-T 충족)
 
 [팀앤디 오토센터 제품 사전]
-* 브이쿨 QB: 프리미엄 비반사 필름. 가시광선 반사율이 6~8%에 불과하므로 '열반사', '반사' 단어 사용 금지. 차분한 블랙/차콜 색상, TSER 최대 63%.
-* 브이쿨 VK: 브이쿨 최상위 프리미엄 라인업. TSER 최고 74%. 압도적인 열 차단과 맑은 시인성.
-* 브이쿨 K: 베스트셀링 메탈 반사 필름. TSER 최고 70%. 100% 메탈 특유의 스타일리시한 반사 색감.
+* 브이쿨 QB: 프리미엄 비반사 필름. 열반사/반사 단어 사용 금지. TSER 최대 63%.
+* 브이쿨 VK: 최상위 프리미엄 라인업. TSER 최고 74%.
+* 브이쿨 K: 베스트셀링 메탈 반사 필름. TSER 최고 70%.
 * 루마 버텍스 900: 압도적인 시인성과 우수한 TSER 수치를 자랑하는 최고급 비반사 필름. 전파 방해와 무아레 현상이 없음.
 
 ---
@@ -196,8 +238,9 @@ system_instruction = """
 한 번 경험해 보신 분들은 다음 차량을 받으실 때도 변함없이 저희 오토센터를 찾으십니다. 심지어 동종 업계 사장님들도 정작 본인 차에는 저희 쪽에 시공해 달라며 찾아오시곤 합니다. 저희 팀앤디 오토센터는 단 한 대를 시공하더라도 완성도 하나만큼은 타협하지 않습니다. 
 """
 
+# [★업그레이드] 블로그 글 작성 AI 역시 최신 3.6 모델 탑재!
 model = genai.GenerativeModel(
-    model_name="gemini-3.5-flash",
+    model_name="gemini-3.6-flash",
     system_instruction=system_instruction
 )
 
@@ -208,7 +251,7 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 썸네일 자동 생성 기능 탑재! 폰트 파일(font.ttf)이 꼭 필요합니다.")
+    st.info("💡 썸네일 생성 및 최신 3.6 AI 기반 번호판 자동 블러 기능 탑재!")
     
     st.divider()
 
@@ -225,7 +268,7 @@ with left_col:
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
 
         st.subheader("📸 작업 사진 업로드")
-        st.caption("첫 번째로 올린 사진이 '썸네일(대표 사진)'이 되어 글씨가 합성됩니다. 나머지 사진은 워터마크만 찍힙니다.")
+        st.caption("첫 번째 사진은 '썸네일'이 됩니다. 또한 AI가 모든 사진 속의 '차량 번호판(임시번호판 포함)'을 찾아 자동으로 모자이크 처리합니다.")
         uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
         st.divider()
@@ -234,13 +277,13 @@ with left_col:
     # 4. 블로그 원고 생성 실행
     if submitted:
         if management_num and target_location and car_model and main_film and work_details and uploaded_files:
-            with st.spinner("전문가 톤앤매너 원고 작성 및 사진을 합성 중입니다... (약 20초 소요)"):
+            with st.spinner("전문가 톤앤매너 원고 작성, 사진 보정 및 번호판을 처리 중입니다... (약 20~30초 소요)"):
                 try:
                     save_to_gsheet(management_num, car_model, work_details)
 
                     images_for_ai = []
                     
-                    st.markdown("### 📸 썸네일 및 보정 완료된 사진")
+                    st.markdown("### 📸 썸네일 및 보정(번호판 블러) 완료된 사진")
                     st.caption("우클릭하여 '이미지를 다른 이름으로 저장' 하신 후 블로그에 바로 사용하세요!")
                     
                     img_cols = st.columns(len(uploaded_files))
@@ -251,10 +294,13 @@ with left_col:
                         # 1단계: 색감 보정
                         img = enhance_image_for_blog(img)
                         
-                        # 2단계: 워터마크 합성 (모든 사진 적용)
+                        # 2단계: 최신 AI 모델(3.6) 기반 번호판 인식 및 모자이크
+                        img = auto_blur_license_plate(img)
+                        
+                        # 3단계: 워터마크 합성
                         img = add_watermark(img, "font.ttf")
                         
-                        # 3단계: 썸네일 합성 (첫 번째 사진만 적용)
+                        # 4단계: 썸네일 합성 (첫 번째 사진만)
                         if idx == 0:
                             img = make_thumbnail(img, car_model, main_film, work_details, "font.ttf")
                         
