@@ -121,9 +121,9 @@ def add_watermark(img, font_path="font.ttf"):
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
     return img
 
-# [★완전신규] 매거진 표지 스타일 썸네일 자동 생성
+# [★수정됨] 매거진 표지 스타일 썸네일 (노란색 글씨를 더 크게, 흰색 글씨를 작게 수정)
 def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="font.ttf"):
-    # 1. 완벽한 1:1 정사각형 비율로 중앙 크롭 (블로그 최적화)
+    # 1. 완벽한 1:1 정사각형 비율로 중앙 크롭
     w, h = img.size
     min_dim = min(w, h)
     left = (w - min_dim) / 2
@@ -132,32 +132,32 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     bottom = (h + min_dim) / 2
     img = img.crop((left, top, right, bottom))
     
-    # 2. 글씨 크기를 일정하게 유지하기 위해 1000x1000 사이즈로 규격화
+    # 2. 1000x1000 사이즈 규격화
     img = img.resize((1000, 1000), Image.Resampling.LANCZOS).convert("RGBA")
     w, h = 1000, 1000
     
-    # 3. 글씨가 잘 보이도록 상단/하단에 은은한 검은색 그라데이션 깔기
+    # 3. 그라데이션 오버레이
     gradient = Image.new('RGBA', (w, h), (0,0,0,0))
     grad_draw = ImageDraw.Draw(gradient)
     for y in range(h):
-        if y < 350: # 상단 그라데이션
+        if y < 350: 
             alpha = int(255 * (1 - y/350)) * 0.7 
             grad_draw.line([(0, y), (w, y)], fill=(0,0,0, int(alpha)))
-        elif y > 650: # 하단 그라데이션
+        elif y > 650: 
             alpha = int(255 * ((y-650)/350)) * 0.8
             grad_draw.line([(0, y), (w, y)], fill=(0,0,0, int(alpha)))
     img = Image.alpha_composite(img, gradient)
     
     draw = ImageDraw.Draw(img)
     
-    # 4. 얇고 세련된 흰색 테두리 그리기
+    # 4. 흰색 테두리
     margin = 40
     draw.rectangle([(margin, margin), (w - margin, h - margin)], outline=(255, 255, 255, 180), width=2)
     
-    # 5. 폰트 세팅
+    # 5. 폰트 세팅 (★ 요청하신 비율로 수정 완료)
     try:
-        font_top_y = ImageFont.truetype(font_path, 65)  # 노란글씨
-        font_top_w = ImageFont.truetype(font_path, 80)  # 흰글씨
+        font_top_y = ImageFont.truetype(font_path, 85)  # 노란글씨 (기존 65 -> 85로 대폭 확대)
+        font_top_w = ImageFont.truetype(font_path, 65)  # 흰글씨 (기존 80 -> 65로 축소)
         font_bot_main = ImageFont.truetype(font_path, 95) # 차종
         font_bot_sub = ImageFont.truetype(font_path, 45)  # 필름명
     except IOError:
@@ -170,7 +170,7 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     
     # [상단 텍스트 배치]
     top_y_pos = margin + 35
-    draw.text((text_x, top_y_pos), top_yellow, font=font_top_y, fill="#FFE600") # 진한 노란색
+    draw.text((text_x, top_y_pos), top_yellow, font=font_top_y, fill="#FFE600") 
     
     bbox_y = draw.textbbox((text_x, top_y_pos), top_yellow, font=font_top_y)
     top_w_pos = bbox_y[3] + 10
@@ -178,7 +178,7 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     
     bbox_w = draw.textbbox((text_x, top_w_pos), top_white, font=font_top_w)
     underline_y = bbox_w[3] + 25
-    draw.line([(text_x, underline_y), (bbox_w[2], underline_y)], fill="white", width=6) # 굵은 밑줄
+    draw.line([(text_x, underline_y), (bbox_w[2], underline_y)], fill="white", width=6) 
     
     # [하단 텍스트 배치]
     bar_width = 12
@@ -186,7 +186,6 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     bar_x = text_x
     bar_y = h - margin - 45 - bar_height
     
-    # 세로 굵은 바 그리기
     draw.rectangle([(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)], fill="white")
     
     text_start_x = bar_x + bar_width + 25
@@ -262,12 +261,12 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 매거진 표지 스타일 썸네일(1:1), 번호판 블러, ZIP 다운로드 탑재 완료!")
+    st.info("💡 매거진 표지 스타일 썸네일 비율 최적화 적용 완료!")
     
     st.divider()
 
     with st.form("my_form"):
-        # UI 레이아웃 조정 (새로운 입력칸 추가)
+        # UI 레이아웃 조정
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             management_num = st.text_input("🔢 번호", placeholder="예: 229")
@@ -312,7 +311,6 @@ with left_col:
                             img = enhance_image_for_blog(img)
                             img = auto_blur_license_plate(img)
                             
-                            # [★수정] 첫 번째 사진은 매거진 썸네일 디자인 적용, 나머지는 일반 워터마크 적용
                             if idx == 0:
                                 img = make_thumbnail(img, thumb_keyword, thumb_brand, car_model, main_film, "font.ttf")
                                 save_name = f"01_썸네일_{file.name}"
