@@ -2,6 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import re 
+import io       # [★신규] 파일을 메모리에 임시 저장하는 부품
+import zipfile  # [★신규] 파일을 ZIP으로 압축하는 부품
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -62,10 +64,9 @@ def enhance_image_for_blog(img):
     img = enhancer_color.enhance(1.1)
     return img
 
-# [★업그레이드] 3.6 최신 AI 비전 인식 기반 번호판 자동 모자이크
+# [★기존] 3.6 최신 AI 비전 인식 기반 번호판 자동 모자이크
 def auto_blur_license_plate(img):
     try:
-        # [수정] 더 똑똑하고 빠르며 저렴한 최신 3.6 모델 탑재!
         vision_model = genai.GenerativeModel("gemini-3.6-flash")
         
         prompt = """Look at this image. Find the vehicle license plate (including temporary wooden/paper plates with Korean text and numbers).
@@ -173,7 +174,7 @@ def make_thumbnail(img, car_model, main_film, work_details, font_path="font.ttf"
 # 1. API 키 설정
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 2. 가이드라인 세팅 
+# 2. 가이드라인 세팅
 system_instruction = """
 [Role & Identity]
 당신은 10년 이상의 현장 경험을 보유한 '팀앤디 오토센터'의 수석 엔지니어이자, 네이버 블로그 'teamandy19'의 메인 에디터입니다. 신차 패키지 및 차량 디테일링에 대한 완벽한 기술적 이해도를 바탕으로, 고객에게 무한한 신뢰감을 주는 최고 전문가의 화법을 구사합니다.
@@ -238,7 +239,6 @@ system_instruction = """
 한 번 경험해 보신 분들은 다음 차량을 받으실 때도 변함없이 저희 오토센터를 찾으십니다. 심지어 동종 업계 사장님들도 정작 본인 차에는 저희 쪽에 시공해 달라며 찾아오시곤 합니다. 저희 팀앤디 오토센터는 단 한 대를 시공하더라도 완성도 하나만큼은 타협하지 않습니다. 
 """
 
-# [★업그레이드] 블로그 글 작성 AI 역시 최신 3.6 모델 탑재!
 model = genai.GenerativeModel(
     model_name="gemini-3.6-flash",
     system_instruction=system_instruction
@@ -251,7 +251,7 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 썸네일 생성 및 최신 3.6 AI 기반 번호판 자동 블러 기능 탑재!")
+    st.info("💡 썸네일 생성 및 번호판 자동 블러, 압축 다운로드(ZIP) 기능 탑재 완료!")
     
     st.divider()
 
@@ -268,7 +268,7 @@ with left_col:
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
 
         st.subheader("📸 작업 사진 업로드")
-        st.caption("첫 번째 사진은 '썸네일'이 됩니다. 또한 AI가 모든 사진 속의 '차량 번호판(임시번호판 포함)'을 찾아 자동으로 모자이크 처리합니다.")
+        st.caption("첫 번째 사진은 '썸네일'이 됩니다. 업로드된 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
         uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
         st.divider()
@@ -283,38 +283,55 @@ with left_col:
 
                     images_for_ai = []
                     
-                    st.markdown("### 📸 썸네일 및 보정(번호판 블러) 완료된 사진")
-                    st.caption("우클릭하여 '이미지를 다른 이름으로 저장' 하신 후 블로그에 바로 사용하세요!")
+                    # [★신규] 압축파일(ZIP) 생성을 위한 메모리 그릇 준비
+                    zip_buffer = io.BytesIO()
                     
-                    img_cols = st.columns(len(uploaded_files))
-                    
-                    for idx, file in enumerate(uploaded_files):
-                        img = Image.open(file).convert("RGBA")
+                    # ZIP 파일 생성 모드 시작
+                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                         
-                        # 1단계: 색감 보정
-                        img = enhance_image_for_blog(img)
+                        st.markdown("### 📸 썸네일 및 보정(번호판 블러) 완료된 사진")
                         
-                        # 2단계: 최신 AI 모델(3.6) 기반 번호판 인식 및 모자이크
-                        img = auto_blur_license_plate(img)
+                        # 사진 개수만큼 컬럼 분할 (Streamlit은 많아도 알아서 가로로 배치해 줍니다)
+                        img_cols = st.columns(len(uploaded_files))
                         
-                        # 3단계: 워터마크 합성
-                        img = add_watermark(img, "font.ttf")
-                        
-                        # 4단계: 썸네일 합성 (첫 번째 사진만)
-                        if idx == 0:
-                            img = make_thumbnail(img, car_model, main_film, work_details, "font.ttf")
-                        
-                        # 화면 출력을 위해 다시 RGB 변환 (투명도 제거)
-                        final_img = img.convert("RGB")
-                        
-                        with img_cols[idx]:
+                        for idx, file in enumerate(uploaded_files):
+                            img = Image.open(file).convert("RGBA")
+                            
+                            img = enhance_image_for_blog(img)
+                            img = auto_blur_license_plate(img)
+                            img = add_watermark(img, "font.ttf")
+                            
                             if idx == 0:
-                                st.markdown("**[대표 사진]**")
-                            st.image(final_img, use_column_width=True)
-                        
-                        # AI 전달용 축소 이미지
-                        final_img.thumbnail((800, 800))  
-                        images_for_ai.append(final_img)
+                                img = make_thumbnail(img, car_model, main_film, work_details, "font.ttf")
+                                save_name = f"01_썸네일_{file.name}"
+                            else:
+                                save_name = f"{idx+1:02d}_{file.name}"
+                            
+                            final_img = img.convert("RGB")
+                            
+                            with img_cols[idx]:
+                                if idx == 0:
+                                    st.markdown("**[대표]**")
+                                st.image(final_img, use_column_width=True)
+                            
+                            final_img.thumbnail((800, 800))  
+                            images_for_ai.append(final_img)
+                            
+                            # [★신규] 보정된 이미지를 바이트로 변환해서 바로 ZIP 파일 안에 담기
+                            img_byte_arr = io.BytesIO()
+                            final_img.save(img_byte_arr, format='JPEG', quality=95)
+                            zip_file.writestr(save_name, img_byte_arr.getvalue())
+                    
+                    st.divider()
+                    
+                    # [★신규] 방금 묶어둔 ZIP 파일을 통째로 다운로드할 수 있는 대형 버튼 생성
+                    st.download_button(
+                        label="📦 보정된 사진 한 번에 다운로드 (ZIP)",
+                        data=zip_buffer.getvalue(),
+                        file_name=f"{car_model}_팀앤디_블로그사진.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
                     
                     st.divider()
                     
