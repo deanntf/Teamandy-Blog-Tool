@@ -64,7 +64,7 @@ def enhance_image_for_blog(img):
     img = enhancer_color.enhance(1.1)
     return img
 
-# [★기존] 최신 AI 비전 인식 기반 번호판 자동 모자이크
+# [★기존] 최신 AI 비전 인식 기반 번호판 자동 모자이크 (Gemini 3.6 Flash)
 def auto_blur_license_plate(img):
     try:
         vision_model = genai.GenerativeModel("gemini-3.6-flash")
@@ -121,9 +121,8 @@ def add_watermark(img, font_path="font.ttf"):
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
     return img
 
-# [★수정됨] 매거진 표지 스타일 썸네일 (노란색 글씨를 더 크게, 흰색 글씨를 작게 수정)
+# [★기존] 매거진 표지 스타일 썸네일 
 def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="font.ttf"):
-    # 1. 완벽한 1:1 정사각형 비율로 중앙 크롭
     w, h = img.size
     min_dim = min(w, h)
     left = (w - min_dim) / 2
@@ -132,11 +131,9 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     bottom = (h + min_dim) / 2
     img = img.crop((left, top, right, bottom))
     
-    # 2. 1000x1000 사이즈 규격화
     img = img.resize((1000, 1000), Image.Resampling.LANCZOS).convert("RGBA")
     w, h = 1000, 1000
     
-    # 3. 그라데이션 오버레이
     gradient = Image.new('RGBA', (w, h), (0,0,0,0))
     grad_draw = ImageDraw.Draw(gradient)
     for y in range(h):
@@ -150,16 +147,14 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     
     draw = ImageDraw.Draw(img)
     
-    # 4. 흰색 테두리
     margin = 40
     draw.rectangle([(margin, margin), (w - margin, h - margin)], outline=(255, 255, 255, 180), width=2)
     
-    # 5. 폰트 세팅 (★ 요청하신 비율로 수정 완료)
     try:
-        font_top_y = ImageFont.truetype(font_path, 85)  # 노란글씨 (기존 65 -> 85로 대폭 확대)
-        font_top_w = ImageFont.truetype(font_path, 65)  # 흰글씨 (기존 80 -> 65로 축소)
-        font_bot_main = ImageFont.truetype(font_path, 95) # 차종
-        font_bot_sub = ImageFont.truetype(font_path, 45)  # 필름명
+        font_top_y = ImageFont.truetype(font_path, 85)  
+        font_top_w = ImageFont.truetype(font_path, 65)  
+        font_bot_main = ImageFont.truetype(font_path, 95) 
+        font_bot_sub = ImageFont.truetype(font_path, 45)  
     except IOError:
         font_top_y = ImageFont.load_default()
         font_top_w = ImageFont.load_default()
@@ -168,7 +163,6 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
         
     text_x = margin + 35
     
-    # [상단 텍스트 배치]
     top_y_pos = margin + 35
     draw.text((text_x, top_y_pos), top_yellow, font=font_top_y, fill="#FFE600") 
     
@@ -180,7 +174,6 @@ def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="
     underline_y = bbox_w[3] + 25
     draw.line([(text_x, underline_y), (bbox_w[2], underline_y)], fill="white", width=6) 
     
-    # [하단 텍스트 배치]
     bar_width = 12
     bar_height = 135
     bar_x = text_x
@@ -261,12 +254,11 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 매거진 표지 스타일 썸네일 비율 최적화 적용 완료!")
+    st.info("💡 대표 사진 강조 레이아웃 및 바둑판 배열 업데이트 완료!")
     
     st.divider()
 
     with st.form("my_form"):
-        # UI 레이아웃 조정
         col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             management_num = st.text_input("🔢 번호", placeholder="예: 229")
@@ -300,12 +292,10 @@ with left_col:
                     save_to_gsheet(management_num, car_model, work_details)
 
                     images_for_ai = []
+                    processed_display_images = [] # [★수정] 화면 출력을 위해 이미지들을 잠시 담아둘 그릇
                     zip_buffer = io.BytesIO()
                     
                     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                        st.markdown("### 📸 썸네일 및 보정(번호판 블러) 완료된 사진")
-                        img_cols = st.columns(len(uploaded_files))
-                        
                         for idx, file in enumerate(uploaded_files):
                             img = Image.open(file).convert("RGBA")
                             img = enhance_image_for_blog(img)
@@ -319,19 +309,35 @@ with left_col:
                                 save_name = f"{idx+1:02d}_{file.name}"
                             
                             final_img = img.convert("RGB")
+                            processed_display_images.append(final_img) # 화면 출력용 리스트에 저장
                             
-                            with img_cols[idx]:
-                                if idx == 0:
-                                    st.markdown("**[대표(정방형)]**")
-                                st.image(final_img, use_column_width=True)
+                            # AI 인식용 이미지 축소본 저장
+                            final_img_for_ai = final_img.copy()
+                            final_img_for_ai.thumbnail((800, 800))  
+                            images_for_ai.append(final_img_for_ai)
                             
-                            final_img.thumbnail((800, 800))  
-                            images_for_ai.append(final_img)
-                            
+                            # ZIP 파일에 저장
                             img_byte_arr = io.BytesIO()
                             final_img.save(img_byte_arr, format='JPEG', quality=95)
                             zip_file.writestr(save_name, img_byte_arr.getvalue())
                     
+                    # [★수정] 레이아웃 변경: 대표 사진을 맨 위 중앙에 크게 띄우기
+                    st.markdown("### 📸 보정 및 썸네일 생성 완료")
+                    
+                    st.markdown("##### 🌟 대표 표지 사진 (1:1 비율)")
+                    # 가운데 정렬을 위해 1:2:1 비율의 컬럼을 만들고 가운데 컬럼에 사진을 넣습니다.
+                    thumb_col1, thumb_col2, thumb_col3 = st.columns([1, 2, 1])
+                    with thumb_col2:
+                        st.image(processed_display_images[0], use_column_width=True)
+                    
+                    # 나머지 사진들은 5칸짜리 바둑판(Grid) 형태로 깔끔하게 나열
+                    if len(processed_display_images) > 1:
+                        st.markdown("##### 🎞️ 일반 작업 사진")
+                        grid_cols = st.columns(5)
+                        for i in range(1, len(processed_display_images)):
+                            with grid_cols[(i - 1) % 5]:
+                                st.image(processed_display_images[i], use_column_width=True)
+
                     st.divider()
                     st.download_button(
                         label="📦 보정된 사진 한 번에 다운로드 (ZIP)",
