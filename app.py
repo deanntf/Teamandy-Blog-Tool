@@ -4,7 +4,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import re 
 import io       
 import zipfile  
-import time # [★기존] 과부하 방지용 휴식 부품
+import time 
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -55,9 +55,7 @@ def get_recent_history():
     except Exception:
         return []
 
-# -------------------------------------------------------------------
-# [★신규 추가 1] 대표님 최종 수정본(피드백)을 구글 시트에 저장하는 함수
-# -------------------------------------------------------------------
+# [★학습용 피드백 저장 함수]
 def save_final_feedback_to_gsheet(car_model, original_text, final_text):
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
@@ -83,9 +81,7 @@ def save_final_feedback_to_gsheet(car_model, original_text, final_text):
         st.error(f"피드백 저장 실패: {e}")
         return False
 
-# -------------------------------------------------------------------
-# [★신규 추가 2] AI가 글쓰기 전 참고할 최근 정답 원고 2건 로드하는 함수
-# -------------------------------------------------------------------
+# [★학습용 피드백 로드 함수]
 def get_fewshot_examples():
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
@@ -166,7 +162,7 @@ def auto_blur_license_plate(img):
         pass
     return img
 
-# [★기존] 상단 워터마크 (썸네일 외의 사진에만 적용)
+# [★기존] 상단 워터마크
 def add_watermark(img, font_path="font.ttf"):
     w, h = img.size
     new_w = 1000
@@ -183,7 +179,7 @@ def add_watermark(img, font_path="font.ttf"):
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
     return img
 
-# [★기존] 매거진 표지 스타일 썸네일 (비율 최적화)
+# [★기존] 매거진 표지 스타일 썸네일
 def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="font.ttf"):
     w, h = img.size
     min_dim = min(w, h)
@@ -316,7 +312,7 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 과부하 방지 로딩바 및 모자이크 스위치 기능 추가 완료!")
+    st.info("💡 표지 전용 업로드 기능 및 AI 학습 모드 추가 완료!")
     
     st.divider()
 
@@ -339,32 +335,37 @@ with left_col:
         main_film = st.text_input("👑 메인 시공명 (하단 작은글씨)", placeholder="예: 버텍스 900 시공")
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
         
-        # [★기존] 과부하 방지를 위한 AI 모자이크 스위치 추가
         st.markdown("##### ⚙️ 기능 옵션 설정")
         use_auto_blur = st.checkbox("🔍 AI 번호판 자동 모자이크 적용 (체크 시 1장당 약 3초가 추가 소요되며, 15장 이상 업로드 시 해제를 권장합니다.)", value=True)
 
+        st.divider()
         st.subheader("📸 작업 사진 업로드")
-        st.caption("첫 번째 사진은 '1:1 매거진 표지'가 됩니다. 업로드된 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
-        uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
+        st.caption("표지로 쓸 사진과 일반 작업 사진을 각각 나누어서 올려주세요. 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
+        
+        # [★신규] 업로드 란을 썸네일 전용(1장)과 일반용(다중)으로 완벽 분리
+        cover_file = st.file_uploader("🖼️ [필수] 1. 대표 썸네일 표지 사진 (딱 1장만 넣어주세요)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
+        general_files = st.file_uploader("🎞️ [필수] 2. 일반 작업 사진 (여러 장 선택 가능)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
         st.divider()
         submitted = st.form_submit_button("✨ 블로그 원고 & 썸네일 자동 생성기 실행 ✨", type="primary", use_container_width=True)
 
     # 4. 블로그 원고 생성 실행
     if submitted:
-        # [★신규] 재실행 시 기존 피드백창 리셋
         if "generated_text" in st.session_state:
             del st.session_state["generated_text"]
             
-        if management_num and target_location and car_model and main_film and work_details and uploaded_files:
+        # [★조건 변경] 두 개의 업로더에 모두 파일이 들어있는지 체크
+        if management_num and target_location and car_model and main_film and work_details and cover_file and general_files:
             try:
                 save_to_gsheet(management_num, car_model, work_details)
+
+                # [★핵심] 썸네일용 사진 1장과 일반 사진들을 하나의 리스트로 결합 (썸네일이 무조건 0번 인덱스)
+                uploaded_files = [cover_file] + general_files
 
                 images_for_ai = []
                 processed_display_images = [] 
                 zip_buffer = io.BytesIO()
                 
-                # [★기존] 답답함을 해소해 줄 실시간 로딩 바 생성
                 progress_text = "사진 보정 및 디자인을 적용하고 있습니다... ({}/{})"
                 my_bar = st.progress(0, text=progress_text.format(0, len(uploaded_files)))
                 
@@ -373,12 +374,11 @@ with left_col:
                         img = Image.open(file).convert("RGBA")
                         img = enhance_image_for_blog(img)
                         
-                        # 스위치가 켜져 있을 때만 AI 번호판 가리기 실행
                         if use_auto_blur:
                             img = auto_blur_license_plate(img)
-                            # 구글 서버 과부하를 살짝 피하기 위한 1초 휴식
                             time.sleep(1) 
                         
+                        # 인덱스 0은 무조건 cover_file 이므로 로직 유지
                         if idx == 0:
                             img = make_thumbnail(img, thumb_keyword, thumb_brand, car_model, main_film, "font.ttf")
                             save_name = f"01_썸네일_{file.name}"
@@ -397,10 +397,8 @@ with left_col:
                         final_img.save(img_byte_arr, format='JPEG', quality=95)
                         zip_file.writestr(save_name, img_byte_arr.getvalue())
                         
-                        # [★기존] 사진 1장 처리 끝날 때마다 로딩 바 게이지 올리기
                         my_bar.progress((idx + 1) / len(uploaded_files), text=progress_text.format(idx+1, len(uploaded_files)))
                 
-                # 모든 사진 처리가 끝나면 로딩 바를 블로그 원고 작성 중으로 변경
                 my_bar.progress(1.0, text="✨ 전문가 수준의 블로그 원고를 렌더링하고 있습니다. 잠시만 기다려주세요!")
                 
                 st.markdown("### 📸 보정 및 썸네일 생성 완료")
@@ -428,9 +426,6 @@ with left_col:
                 
                 st.divider()
                 
-                # -------------------------------------------------------------------
-                # [★신규 추가 3] 글 작성 전, 구글 시트에서 완벽 수정본(예시) 긁어오기
-                # -------------------------------------------------------------------
                 fewshot_examples = get_fewshot_examples()
                 user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n"
                 
@@ -441,24 +436,18 @@ with left_col:
                 
                 response = model.generate_content(images_for_ai + [user_prompt])
                 
-                # 원고 작성이 끝난 후 로딩바 완료 메세지
                 my_bar.empty() 
                 st.success("✅ 완벽한 세팅이 완료되었습니다! (엑셀 자동 저장 완료)")
                 
-                # -------------------------------------------------------------------
-                # [★신규 추가 4] 화면이 새로고침 되어도 피드백 창이 날아가지 않게 저장
-                # -------------------------------------------------------------------
                 st.session_state["generated_text"] = response.text
                 st.session_state["current_car_model"] = car_model
                 
             except Exception as e:
                 st.error(f"오류가 발생했습니다: 구글 AI 서버 지연(Rate Limit) 문제일 수 있습니다. 사진을 5~10장으로 줄이거나, 'AI 모자이크' 체크를 해제 후 다시 시도해 보세요. (상세에러: {e})")
         else:
-            st.warning("⚠️ 모든 빈칸을 채우고 사진을 업로드해 주세요.")
+            # [★에러 메시지 변경] 파일 업로드 관련 안내 문구 수정
+            st.warning("⚠️ 모든 빈칸을 채우고, [1. 대표 썸네일]과 [2. 일반 작업 사진]을 각각 모두 업로드해 주세요.")
 
-    # -------------------------------------------------------------------
-    # [★신규 추가 5] 최종 생성된 텍스트 출력 및 피드백 저장 폼
-    # -------------------------------------------------------------------
     if "generated_text" in st.session_state:
         st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=st.session_state["generated_text"], height=500)
         
@@ -472,7 +461,7 @@ with left_col:
             with st.spinner("구글 시트에 대표님의 스타일을 저장 중입니다..."):
                 if save_final_feedback_to_gsheet(st.session_state.get("current_car_model", "차종미상"), st.session_state["generated_text"], edited_final_text):
                     st.success("🎉 성공적으로 학습 데이터가 저장되었습니다! 다음 작업부터는 대표님의 수정 스타일이 자동 반영됩니다.")
-                    del st.session_state["generated_text"] # 중복 저장 방지
+                    del st.session_state["generated_text"] 
 
 with right_col:
     recent_data = get_recent_history()
