@@ -4,7 +4,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import re 
 import io       
 import zipfile  
-import time # [★신규] 과부하 방지용 휴식 부품
+import time # [★기존] 과부하 방지용 휴식 부품
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -54,6 +54,67 @@ def get_recent_history():
         return recent_records
     except Exception:
         return []
+
+# -------------------------------------------------------------------
+# [★신규 추가 1] 대표님 최종 수정본(피드백)을 구글 시트에 저장하는 함수
+# -------------------------------------------------------------------
+def save_final_feedback_to_gsheet(car_model, original_text, final_text):
+    try:
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit"
+        doc = gc.open_by_url(sheet_url)
+        
+        try:
+            worksheet = doc.worksheet("Feedback")
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = doc.add_worksheet(title="Feedback", rows="1000", cols="5")
+            worksheet.append_row(["일시", "차종", "AI초안", "대표님최종수정본"])
+            
+        KST = datetime.timezone(datetime.timedelta(hours=9))
+        now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+        worksheet.append_row([now, car_model, original_text, final_text])
+        return True
+    except Exception as e:
+        st.error(f"피드백 저장 실패: {e}")
+        return False
+
+# -------------------------------------------------------------------
+# [★신규 추가 2] AI가 글쓰기 전 참고할 최근 정답 원고 2건 로드하는 함수
+# -------------------------------------------------------------------
+def get_fewshot_examples():
+    try:
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit"
+        doc = gc.open_by_url(sheet_url)
+        
+        try:
+            worksheet = doc.worksheet("Feedback")
+        except gspread.exceptions.WorksheetNotFound:
+            return "" 
+            
+        records = worksheet.get_all_values()
+        if len(records) <= 1:
+            return ""
+
+        valid_records = [row[3] for row in records[1:] if len(row) >= 4 and str(row[3]).strip() != ""]
+        recent_examples = valid_records[-2:]
+        if not recent_examples:
+            return ""
+            
+        fewshot_str = "\n\n".join([f"=== [대표님 직접 승인 완벽 원고 예시 {i+1}] ===\n{ex}" for i, ex in enumerate(recent_examples)])
+        return fewshot_str
+    except Exception:
+        return ""
 
 # [★기존] 색감 자동 보정
 def enhance_image_for_blog(img):
@@ -278,7 +339,7 @@ with left_col:
         main_film = st.text_input("👑 메인 시공명 (하단 작은글씨)", placeholder="예: 버텍스 900 시공")
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
         
-        # [★신규] 과부하 방지를 위한 AI 모자이크 스위치 추가
+        # [★기존] 과부하 방지를 위한 AI 모자이크 스위치 추가
         st.markdown("##### ⚙️ 기능 옵션 설정")
         use_auto_blur = st.checkbox("🔍 AI 번호판 자동 모자이크 적용 (체크 시 1장당 약 3초가 추가 소요되며, 15장 이상 업로드 시 해제를 권장합니다.)", value=True)
 
@@ -291,6 +352,10 @@ with left_col:
 
     # 4. 블로그 원고 생성 실행
     if submitted:
+        # [★신규] 재실행 시 기존 피드백창 리셋
+        if "generated_text" in st.session_state:
+            del st.session_state["generated_text"]
+            
         if management_num and target_location and car_model and main_film and work_details and uploaded_files:
             try:
                 save_to_gsheet(management_num, car_model, work_details)
@@ -299,7 +364,7 @@ with left_col:
                 processed_display_images = [] 
                 zip_buffer = io.BytesIO()
                 
-                # [★신규] 답답함을 해소해 줄 실시간 로딩 바 생성
+                # [★기존] 답답함을 해소해 줄 실시간 로딩 바 생성
                 progress_text = "사진 보정 및 디자인을 적용하고 있습니다... ({}/{})"
                 my_bar = st.progress(0, text=progress_text.format(0, len(uploaded_files)))
                 
@@ -332,7 +397,7 @@ with left_col:
                         final_img.save(img_byte_arr, format='JPEG', quality=95)
                         zip_file.writestr(save_name, img_byte_arr.getvalue())
                         
-                        # [★신규] 사진 1장 처리 끝날 때마다 로딩 바 게이지 올리기
+                        # [★기존] 사진 1장 처리 끝날 때마다 로딩 바 게이지 올리기
                         my_bar.progress((idx + 1) / len(uploaded_files), text=progress_text.format(idx+1, len(uploaded_files)))
                 
                 # 모든 사진 처리가 끝나면 로딩 바를 블로그 원고 작성 중으로 변경
@@ -363,18 +428,51 @@ with left_col:
                 
                 st.divider()
                 
-                user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n위 시공 내역과 사진들을 바탕으로 블로그 원고를 작성해 주세요."
+                # -------------------------------------------------------------------
+                # [★신규 추가 3] 글 작성 전, 구글 시트에서 완벽 수정본(예시) 긁어오기
+                # -------------------------------------------------------------------
+                fewshot_examples = get_fewshot_examples()
+                user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n"
+                
+                if fewshot_examples:
+                    user_prompt += f"[참고: 대표님이 승인한 최고의 원고 예시]\n{fewshot_examples}\n\n위 예시 원고의 문체, 구성, 어조, 줄바꿈 방식을 완벽하게 분석하고 100% 동일한 스타일로 블로그 원고를 작성해 주세요."
+                else:
+                    user_prompt += "위 시공 내역과 사진들을 바탕으로 블로그 원고를 작성해 주세요."
+                
                 response = model.generate_content(images_for_ai + [user_prompt])
                 
                 # 원고 작성이 끝난 후 로딩바 완료 메세지
                 my_bar.empty() 
                 st.success("✅ 완벽한 세팅이 완료되었습니다! (엑셀 자동 저장 완료)")
-                st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
+                
+                # -------------------------------------------------------------------
+                # [★신규 추가 4] 화면이 새로고침 되어도 피드백 창이 날아가지 않게 저장
+                # -------------------------------------------------------------------
+                st.session_state["generated_text"] = response.text
+                st.session_state["current_car_model"] = car_model
                 
             except Exception as e:
                 st.error(f"오류가 발생했습니다: 구글 AI 서버 지연(Rate Limit) 문제일 수 있습니다. 사진을 5~10장으로 줄이거나, 'AI 모자이크' 체크를 해제 후 다시 시도해 보세요. (상세에러: {e})")
         else:
             st.warning("⚠️ 모든 빈칸을 채우고 사진을 업로드해 주세요.")
+
+    # -------------------------------------------------------------------
+    # [★신규 추가 5] 최종 생성된 텍스트 출력 및 피드백 저장 폼
+    # -------------------------------------------------------------------
+    if "generated_text" in st.session_state:
+        st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=st.session_state["generated_text"], height=500)
+        
+        st.divider()
+        st.markdown("### 🎓 (중요) AI 학습용 완벽 원고 등록")
+        st.info("네이버 블로그에서 글을 최종적으로 예쁘게 다듬으셨나요? **발행 버튼을 누르기 전, 그 완성된 텍스트를 아래 빈칸에 붙여넣고 [저장]을 눌러주세요.** 다음번 글쓰기부터 대표님의 스타일을 똑같이 따라 합니다!")
+        
+        edited_final_text = st.text_area("✏️ 대표님이 수정을 완료한 '최종 완벽 원고'", value=st.session_state["generated_text"], height=400)
+        
+        if st.button("💾 대표님 수정본 저장 (AI 학습 반영)", type="secondary", use_container_width=True):
+            with st.spinner("구글 시트에 대표님의 스타일을 저장 중입니다..."):
+                if save_final_feedback_to_gsheet(st.session_state.get("current_car_model", "차종미상"), st.session_state["generated_text"], edited_final_text):
+                    st.success("🎉 성공적으로 학습 데이터가 저장되었습니다! 다음 작업부터는 대표님의 수정 스타일이 자동 반영됩니다.")
+                    del st.session_state["generated_text"] # 중복 저장 방지
 
 with right_col:
     recent_data = get_recent_history()
