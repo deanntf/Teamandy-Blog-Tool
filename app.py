@@ -4,15 +4,15 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import re 
 import io       
 import zipfile  
-import time 
+import time
 
 import gspread
 from google.oauth2.service_account import Credentials
 import json
 import datetime
 
-# [★기존] 엑셀 자동 저장
-def save_to_gsheet(management_num, car_model, work_details):
+# [★수정됨] 엑셀 자동 저장 (타겟 지역 파라미터 추가)
+def save_to_gsheet(management_num, target_location, car_model, work_details):
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
         creds = Credentials.from_service_account_info(
@@ -28,7 +28,8 @@ def save_to_gsheet(management_num, car_model, work_details):
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
-        worksheet.append_row([now, management_num, car_model, work_details])
+        # 기존 데이터 배열이 깨지지 않도록 5번째 열에 타겟 지역(target_location) 추가
+        worksheet.append_row([now, management_num, car_model, work_details, target_location])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
 
@@ -312,7 +313,7 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 표지 전용 업로드 기능 및 AI 학습 모드 추가 완료!")
+    st.info("💡 대표 사진 강조 레이아웃 및 엑셀 타겟지역 자동 저장 업데이트 완료!")
     
     st.divider()
 
@@ -342,7 +343,6 @@ with left_col:
         st.subheader("📸 작업 사진 업로드")
         st.caption("표지로 쓸 사진과 일반 작업 사진을 각각 나누어서 올려주세요. 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
         
-        # [★신규] 업로드 란을 썸네일 전용(1장)과 일반용(다중)으로 완벽 분리
         cover_file = st.file_uploader("🖼️ [필수] 1. 대표 썸네일 표지 사진 (딱 1장만 넣어주세요)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
         general_files = st.file_uploader("🎞️ [필수] 2. 일반 작업 사진 (여러 장 선택 가능)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
@@ -354,12 +354,11 @@ with left_col:
         if "generated_text" in st.session_state:
             del st.session_state["generated_text"]
             
-        # [★조건 변경] 두 개의 업로더에 모두 파일이 들어있는지 체크
         if management_num and target_location and car_model and main_film and work_details and cover_file and general_files:
             try:
-                save_to_gsheet(management_num, car_model, work_details)
+                # [★수정됨] 엑셀 자동 저장 시 타겟지역(target_location) 추가 전달
+                save_to_gsheet(management_num, target_location, car_model, work_details)
 
-                # [★핵심] 썸네일용 사진 1장과 일반 사진들을 하나의 리스트로 결합 (썸네일이 무조건 0번 인덱스)
                 uploaded_files = [cover_file] + general_files
 
                 images_for_ai = []
@@ -378,7 +377,6 @@ with left_col:
                             img = auto_blur_license_plate(img)
                             time.sleep(1) 
                         
-                        # 인덱스 0은 무조건 cover_file 이므로 로직 유지
                         if idx == 0:
                             img = make_thumbnail(img, thumb_keyword, thumb_brand, car_model, main_film, "font.ttf")
                             save_name = f"01_썸네일_{file.name}"
@@ -445,7 +443,6 @@ with left_col:
             except Exception as e:
                 st.error(f"오류가 발생했습니다: 구글 AI 서버 지연(Rate Limit) 문제일 수 있습니다. 사진을 5~10장으로 줄이거나, 'AI 모자이크' 체크를 해제 후 다시 시도해 보세요. (상세에러: {e})")
         else:
-            # [★에러 메시지 변경] 파일 업로드 관련 안내 문구 수정
             st.warning("⚠️ 모든 빈칸을 채우고, [1. 대표 썸네일]과 [2. 일반 작업 사진]을 각각 모두 업로드해 주세요.")
 
     if "generated_text" in st.session_state:
@@ -473,9 +470,13 @@ with right_col:
     if recent_data:
         for row in recent_data:
             work_summary = row[3]
+            
+            # [★수정됨] 우측 패널에 타겟 지역(5번째 열)이 존재할 경우 파란색 배지로 출력되도록 추가
+            loc_badge = f" <span style='color:#1E90FF; font-size:15px;'>[{row[4]}]</span>" if len(row) > 4 and row[4].strip() else ""
+            
             history_html += f"""
 <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
-<div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
+<div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}]{loc_badge} {row[2]}</div>
 <div style="font-size: 13px; color: #888888; margin-bottom: 8px;">🗓️ {row[0]}</div>
 <div style="font-size: 14px; color: #555555; white-space: pre-wrap;">🛠️ {work_summary}</div>
 </div>"""
