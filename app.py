@@ -4,7 +4,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 import re 
 import io       
 import zipfile  
-import time # [★신규] 과부하 방지용 휴식 부품
+import time 
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -12,7 +12,7 @@ import json
 import datetime
 
 # [★기존] 엑셀 자동 저장
-def save_to_gsheet(management_num, car_model, work_details):
+def save_to_gsheet(management_num, target_location, car_model, work_details):
     try:
         creds_json = json.loads(st.secrets["GCP_JSON"])
         creds = Credentials.from_service_account_info(
@@ -28,7 +28,7 @@ def save_to_gsheet(management_num, car_model, work_details):
         KST = datetime.timezone(datetime.timedelta(hours=9))
         now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
         
-        worksheet.append_row([now, management_num, car_model, work_details])
+        worksheet.append_row([now, management_num, car_model, work_details, target_location])
     except Exception as e:
         st.warning(f"⚠️ 엑셀 저장에 실패했습니다. (오류: {e})")
 
@@ -54,6 +54,63 @@ def get_recent_history():
         return recent_records
     except Exception:
         return []
+
+# [★기존] 학습용 피드백 저장
+def save_final_feedback_to_gsheet(car_model, original_text, final_text):
+    try:
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit"
+        doc = gc.open_by_url(sheet_url)
+        
+        try:
+            worksheet = doc.worksheet("Feedback")
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = doc.add_worksheet(title="Feedback", rows="1000", cols="5")
+            worksheet.append_row(["일시", "차종", "AI초안", "대표님최종수정본"])
+            
+        KST = datetime.timezone(datetime.timedelta(hours=9))
+        now = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
+        worksheet.append_row([now, car_model, original_text, final_text])
+        return True
+    except Exception as e:
+        st.error(f"피드백 저장 실패: {e}")
+        return False
+
+# [★기존] 학습용 피드백 로드
+def get_fewshot_examples():
+    try:
+        creds_json = json.loads(st.secrets["GCP_JSON"])
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        gc = gspread.authorize(creds)
+        sheet_url = "https://docs.google.com/spreadsheets/d/1JavBx0STp73mlTg8qNjeJ2lDHwwwwxCZvKAZAwANxd8/edit"
+        doc = gc.open_by_url(sheet_url)
+        
+        try:
+            worksheet = doc.worksheet("Feedback")
+        except gspread.exceptions.WorksheetNotFound:
+            return "" 
+            
+        records = worksheet.get_all_values()
+        if len(records) <= 1:
+            return ""
+
+        valid_records = [row[3] for row in records[1:] if len(row) >= 4 and str(row[3]).strip() != ""]
+        recent_examples = valid_records[-2:]
+        if not recent_examples:
+            return ""
+            
+        fewshot_str = "\n\n".join([f"=== [대표님 직접 승인 완벽 원고 예시 {i+1}] ===\n{ex}" for i, ex in enumerate(recent_examples)])
+        return fewshot_str
+    except Exception:
+        return ""
 
 # [★기존] 색감 자동 보정
 def enhance_image_for_blog(img):
@@ -105,7 +162,7 @@ def auto_blur_license_plate(img):
         pass
     return img
 
-# [★기존] 상단 워터마크 (썸네일 외의 사진에만 적용)
+# [★기존] 상단 워터마크
 def add_watermark(img, font_path="font.ttf"):
     w, h = img.size
     new_w = 1000
@@ -122,7 +179,7 @@ def add_watermark(img, font_path="font.ttf"):
     draw.text((30, 25), "TEAMANDY", font=font_title, fill="white")
     return img
 
-# [★기존] 매거진 표지 스타일 썸네일 (비율 최적화)
+# [★기존] 매거진 표지 스타일 썸네일
 def make_thumbnail(img, top_yellow, top_white, car_model, main_film, font_path="font.ttf"):
     w, h = img.size
     min_dim = min(w, h)
@@ -255,7 +312,7 @@ left_col, right_col = st.columns([7, 3], gap="large")
 
 with left_col:
     st.markdown("<h1 style='text-align: center;'>🚗 팀앤디 오토센터 블로그 매니저</h1>", unsafe_allow_html=True)
-    st.info("💡 과부하 방지 로딩바 및 모자이크 스위치 기능 추가 완료!")
+    st.info("💡 메모리 최적화 완료: 피드백 저장 및 ZIP 다운로드 시 화면이 초기화되지 않습니다!")
     
     st.divider()
 
@@ -278,28 +335,31 @@ with left_col:
         main_film = st.text_input("👑 메인 시공명 (하단 작은글씨)", placeholder="예: 버텍스 900 시공")
         work_details = st.text_area("🛠️ 상세 작업 내역", placeholder="예: 전면 30%, 측후면 15% + PPF(4종)...")
         
-        # [★신규] 과부하 방지를 위한 AI 모자이크 스위치 추가
         st.markdown("##### ⚙️ 기능 옵션 설정")
         use_auto_blur = st.checkbox("🔍 AI 번호판 자동 모자이크 적용 (체크 시 1장당 약 3초가 추가 소요되며, 15장 이상 업로드 시 해제를 권장합니다.)", value=True)
 
+        st.divider()
         st.subheader("📸 작업 사진 업로드")
-        st.caption("첫 번째 사진은 '1:1 매거진 표지'가 됩니다. 업로드된 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
-        uploaded_files = st.file_uploader("", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
+        st.caption("표지로 쓸 사진과 일반 작업 사진을 각각 나누어서 올려주세요. 모든 사진의 번호판은 AI가 자동으로 가려줍니다.")
+        
+        cover_file = st.file_uploader("🖼️ [필수] 1. 대표 썸네일 표지 사진 (딱 1장만 넣어주세요)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=False)
+        general_files = st.file_uploader("🎞️ [필수] 2. 일반 작업 사진 (여러 장 선택 가능)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
         st.divider()
         submitted = st.form_submit_button("✨ 블로그 원고 & 썸네일 자동 생성기 실행 ✨", type="primary", use_container_width=True)
 
-    # 4. 블로그 원고 생성 실행
+    # [★핵심 수정] 생성 버튼을 누른 순간의 처리와 그 이후 화면 유지 처리 분리
     if submitted:
-        if management_num and target_location and car_model and main_film and work_details and uploaded_files:
+        if management_num and target_location and car_model and main_film and work_details and cover_file and general_files:
             try:
-                save_to_gsheet(management_num, car_model, work_details)
+                save_to_gsheet(management_num, target_location, car_model, work_details)
+
+                uploaded_files = [cover_file] + general_files
 
                 images_for_ai = []
                 processed_display_images = [] 
                 zip_buffer = io.BytesIO()
                 
-                # [★신규] 답답함을 해소해 줄 실시간 로딩 바 생성
                 progress_text = "사진 보정 및 디자인을 적용하고 있습니다... ({}/{})"
                 my_bar = st.progress(0, text=progress_text.format(0, len(uploaded_files)))
                 
@@ -308,10 +368,8 @@ with left_col:
                         img = Image.open(file).convert("RGBA")
                         img = enhance_image_for_blog(img)
                         
-                        # 스위치가 켜져 있을 때만 AI 번호판 가리기 실행
                         if use_auto_blur:
                             img = auto_blur_license_plate(img)
-                            # 구글 서버 과부하를 살짝 피하기 위한 1초 휴식
                             time.sleep(1) 
                         
                         if idx == 0:
@@ -332,49 +390,75 @@ with left_col:
                         final_img.save(img_byte_arr, format='JPEG', quality=95)
                         zip_file.writestr(save_name, img_byte_arr.getvalue())
                         
-                        # [★신규] 사진 1장 처리 끝날 때마다 로딩 바 게이지 올리기
                         my_bar.progress((idx + 1) / len(uploaded_files), text=progress_text.format(idx+1, len(uploaded_files)))
                 
-                # 모든 사진 처리가 끝나면 로딩 바를 블로그 원고 작성 중으로 변경
                 my_bar.progress(1.0, text="✨ 전문가 수준의 블로그 원고를 렌더링하고 있습니다. 잠시만 기다려주세요!")
                 
-                st.markdown("### 📸 보정 및 썸네일 생성 완료")
+                fewshot_examples = get_fewshot_examples()
+                user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n"
                 
-                st.markdown("##### 🌟 대표 표지 사진 (1:1 비율)")
-                thumb_col1, thumb_col2, thumb_col3 = st.columns([1, 2, 1])
-                with thumb_col2:
-                    st.image(processed_display_images[0], use_column_width=True)
+                if fewshot_examples:
+                    user_prompt += f"[참고: 대표님이 승인한 최고의 원고 예시]\n{fewshot_examples}\n\n위 예시 원고의 문체, 구성, 어조, 줄바꿈 방식을 완벽하게 분석하고 100% 동일한 스타일로 블로그 원고를 작성해 주세요."
+                else:
+                    user_prompt += "위 시공 내역과 사진들을 바탕으로 블로그 원고를 작성해 주세요."
                 
-                if len(processed_display_images) > 1:
-                    st.markdown("##### 🎞️ 일반 작업 사진")
-                    grid_cols = st.columns(5)
-                    for i in range(1, len(processed_display_images)):
-                        with grid_cols[(i - 1) % 5]:
-                            st.image(processed_display_images[i], use_column_width=True)
-
-                st.divider()
-                st.download_button(
-                    label="📦 보정된 사진 한 번에 다운로드 (ZIP)",
-                    data=zip_buffer.getvalue(),
-                    file_name=f"{car_model}_팀앤디_블로그사진.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
-                
-                st.divider()
-                
-                user_prompt = f"[키워드/시공 내역]\n타겟 지역: {target_location}\n차종: {car_model}\n메인시공: {main_film}\n상세내역: {work_details}\n\n위 시공 내역과 사진들을 바탕으로 블로그 원고를 작성해 주세요."
                 response = model.generate_content(images_for_ai + [user_prompt])
                 
-                # 원고 작성이 끝난 후 로딩바 완료 메세지
+                # ★ 임시 메모리(session_state)에 결과물들 안전하게 보관
+                st.session_state["processed_images"] = processed_display_images
+                st.session_state["zip_data"] = zip_buffer.getvalue()
+                st.session_state["zip_filename"] = f"{car_model}_팀앤디_블로그사진.zip"
+                st.session_state["generated_text"] = response.text
+                st.session_state["current_car_model"] = car_model
+                
                 my_bar.empty() 
                 st.success("✅ 완벽한 세팅이 완료되었습니다! (엑셀 자동 저장 완료)")
-                st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=response.text, height=500)
                 
             except Exception as e:
                 st.error(f"오류가 발생했습니다: 구글 AI 서버 지연(Rate Limit) 문제일 수 있습니다. 사진을 5~10장으로 줄이거나, 'AI 모자이크' 체크를 해제 후 다시 시도해 보세요. (상세에러: {e})")
         else:
-            st.warning("⚠️ 모든 빈칸을 채우고 사진을 업로드해 주세요.")
+            st.warning("⚠️ 모든 빈칸을 채우고, [1. 대표 썸네일]과 [2. 일반 작업 사진]을 각각 모두 업로드해 주세요.")
+
+    # [★핵심 수정] 메모리(session_state)에 결과물이 저장되어 있다면 버튼을 누르든 뭘 하든 화면 유지
+    if "generated_text" in st.session_state:
+        st.markdown("### 📸 보정 및 썸네일 생성 완료")
+        
+        st.markdown("##### 🌟 대표 표지 사진 (1:1 비율)")
+        thumb_col1, thumb_col2, thumb_col3 = st.columns([1, 2, 1])
+        with thumb_col2:
+            st.image(st.session_state["processed_images"][0], use_column_width=True)
+        
+        if len(st.session_state["processed_images"]) > 1:
+            st.markdown("##### 🎞️ 일반 작업 사진")
+            grid_cols = st.columns(5)
+            for i in range(1, len(st.session_state["processed_images"])):
+                with grid_cols[(i - 1) % 5]:
+                    st.image(st.session_state["processed_images"][i], use_column_width=True)
+
+        st.divider()
+        st.download_button(
+            label="📦 보정된 사진 한 번에 다운로드 (ZIP)",
+            data=st.session_state["zip_data"],
+            file_name=st.session_state["zip_filename"],
+            mime="application/zip",
+            use_container_width=True,
+        )
+        
+        st.divider()
+
+        st.text_area("📋 완성된 블로그 본문 (복사해서 사용하세요)", value=st.session_state["generated_text"], height=500)
+        
+        st.divider()
+        st.markdown("### 🎓 (중요) AI 학습용 완벽 원고 등록")
+        st.info("네이버 블로그에서 글을 최종적으로 예쁘게 다듬으셨나요? **발행 버튼을 누르기 전, 그 완성된 텍스트를 아래 빈칸에 붙여넣고 [저장]을 눌러주세요.** 다음번 글쓰기부터 대표님의 스타일을 똑같이 따라 합니다!")
+        
+        edited_final_text = st.text_area("✏️ 대표님이 수정을 완료한 '최종 완벽 원고'", value=st.session_state["generated_text"], height=400)
+        
+        if st.button("💾 대표님 수정본 저장 (AI 학습 반영)", type="secondary", use_container_width=True):
+            with st.spinner("구글 시트에 대표님의 스타일을 저장 중입니다..."):
+                if save_final_feedback_to_gsheet(st.session_state.get("current_car_model", "차종미상"), st.session_state["generated_text"], edited_final_text):
+                    st.success("🎉 성공적으로 학습 데이터가 저장되었습니다! 다음 작업부터는 대표님의 수정 스타일이 자동 반영됩니다.")
+                    # 이제 저장을 눌러도 사진이나 원고가 화면에서 증발하지 않습니다!
 
 with right_col:
     recent_data = get_recent_history()
@@ -386,9 +470,11 @@ with right_col:
     if recent_data:
         for row in recent_data:
             work_summary = row[3]
+            loc_badge = f" <span style='color:#1E90FF; font-size:15px;'>[{row[4]}]</span>" if len(row) > 4 and row[4].strip() else ""
+            
             history_html += f"""
 <div style="padding: 12px 0px; border-bottom: 1px solid rgba(0,0,0,0.1);">
-<div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}] {row[2]}</div>
+<div style="font-size: 16px; font-weight: bold; margin-bottom: 4px;">[{row[1]}]{loc_badge} {row[2]}</div>
 <div style="font-size: 13px; color: #888888; margin-bottom: 8px;">🗓️ {row[0]}</div>
 <div style="font-size: 14px; color: #555555; white-space: pre-wrap;">🛠️ {work_summary}</div>
 </div>"""
