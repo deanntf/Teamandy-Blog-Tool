@@ -1,10 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
-import re 
-import io       
-import zipfile  
-import time 
+import re
+import io
+import zipfile
+import time
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -350,6 +350,9 @@ with left_col:
 
     # [★핵심 수정] 생성 버튼을 누른 순간의 처리와 그 이후 화면 유지 처리 분리
     if submitted:
+        if "generated_text" in st.session_state:
+            del st.session_state["generated_text"]
+            
         if management_num and target_location and car_model and main_film and work_details and cover_file and general_files:
             try:
                 save_to_gsheet(management_num, target_location, car_model, work_details)
@@ -458,7 +461,6 @@ with left_col:
             with st.spinner("구글 시트에 대표님의 스타일을 저장 중입니다..."):
                 if save_final_feedback_to_gsheet(st.session_state.get("current_car_model", "차종미상"), st.session_state["generated_text"], edited_final_text):
                     st.success("🎉 성공적으로 학습 데이터가 저장되었습니다! 다음 작업부터는 대표님의 수정 스타일이 자동 반영됩니다.")
-                    # 이제 저장을 눌러도 사진이나 원고가 화면에서 증발하지 않습니다!
 
 with right_col:
     recent_data = get_recent_history()
